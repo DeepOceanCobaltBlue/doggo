@@ -27,6 +27,7 @@ LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
 I2C_BUS = 1
 I2C_ADDR = 0x40
 
+BASE_DIR = Path(__file__).resolve().parent
 
 # -----------------------------
 # Fixed locations (backend-owned)
@@ -250,7 +251,8 @@ except Exception as e:
 # -----------------------------
 @app.get("/")
 def index():
-    return send_from_directory("static", "config.html")
+    return send_from_directory(str(BASE_DIR / "static"), "config_page.html")
+
 
 
 # -----------------------------

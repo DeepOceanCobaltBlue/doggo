@@ -29,7 +29,8 @@ LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
 PROGRAMS_DIR = Path("programs")
 
 # Hub UI
-HUB_STATIC_DIR = Path("hub_static")
+BASE_DIR = Path(__file__).resolve().parent
+HUB_STATIC_DIR = BASE_DIR / "hub_static"
 HUB_PAGE = "hub_page.html"
 
 
