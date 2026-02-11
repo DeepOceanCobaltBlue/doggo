@@ -1,517 +1,538 @@
-<!DOCTYPE html>
-<html lang="en">
+cat > static/config_page.html <<'EOF' <!DOCTYPE html>
+    <html lang="en">
 
-<head>
-    <meta charset="UTF-8" />
-    <title>Doggo Config</title>
-    <style>
-        :root {
-            --bg: #0f1220;
-            --panel: #181c2f;
-            --accent: #4da3ff;
-            --text: #e6e8f0;
-            --muted: #9aa0b3;
-            --selected: #263a5f;
-            --danger: #ff5d5d;
-        }
+    <head>
+        <meta charset="UTF-8" />
+        <title>Doggo Config</title>
+        <style>
+            :root {
+                --bg: #0f1220;
+                --panel: #181c2f;
+                --accent: #4da3ff;
+                --text: #e6e8f0;
+                --muted: #9aa0b3;
+                --selected: #263a5f;
+                --danger: #ff5d5d;
+            }
 
-        * {
-            box-sizing: border-box;
-        }
+            * {
+                box-sizing: border-box;
+            }
 
-        body {
-            margin: 0;
-            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-            background: var(--bg);
-            color: var(--text);
-        }
+            body {
+                margin: 0;
+                font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+                background: var(--bg);
+                color: var(--text);
+            }
 
-        .wrap {
-            display: grid;
-            grid-template-columns: 1fr 360px;
-            grid-template-rows: 1fr 90px;
-            height: 100vh;
-            gap: 12px;
-            padding: 12px;
-        }
+            /* Keep the robot canvas from collapsing into overlap:
+           - left side has a minimum usable width
+           - if the window is smaller, the main panel scrolls instead of squeezing widgets together */
+            .wrap {
+                display: grid;
+                grid-template-columns: minmax(980px, 1fr) 360px;
+                grid-template-rows: 1fr 90px;
+                height: 100vh;
+                gap: 12px;
+                padding: 12px;
+            }
 
-        .main {
-            background: var(--panel);
-            border-radius: 16px;
-            position: relative;
-            overflow: hidden;
-        }
+            .main {
+                background: var(--panel);
+                border-radius: 16px;
+                position: relative;
 
-        .sidebar {
-            background: var(--panel);
-            border-radius: 16px;
-            padding: 14px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
+                /* was overflow:hidden; */
+                overflow: auto;
 
-        .bar {
-            grid-column: 1 / span 2;
-            background: var(--panel);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 14px;
-            padding: 10px;
-        }
+                /* locked canvas size so widgets don't collide due to layout squeeze */
+                min-width: 980px;
+                min-height: 680px;
+            }
 
-        .muted {
-            color: var(--muted);
-            font-size: 13px;
-        }
+            .sidebar {
+                background: var(--panel);
+                border-radius: 16px;
+                padding: 14px;
+                display: flex;
+                flex-direction: column;
+                gap: 14px;
+            }
 
-        .row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-        }
+            .bar {
+                grid-column: 1 / span 2;
+                background: var(--panel);
+                border-radius: 16px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 14px;
+                padding: 10px;
+            }
 
-        button {
-            background: transparent;
-            color: var(--text);
-            border: 1px solid rgba(255, 255, 255, .18);
-            border-radius: 12px;
-            padding: 10px 12px;
-            cursor: pointer;
-        }
+            .muted {
+                color: var(--muted);
+                font-size: 13px;
+            }
 
-        button.primary {
-            border-color: var(--accent);
-            color: var(--accent);
-        }
+            .row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+            }
 
-        button:disabled {
-            opacity: .35;
-            cursor: not-allowed;
-        }
+            button {
+                background: transparent;
+                color: var(--text);
+                border: 1px solid rgba(255, 255, 255, .18);
+                border-radius: 12px;
+                padding: 10px 12px;
+                cursor: pointer;
+            }
 
-        .danger {
-            color: var(--danger);
-        }
+            button.primary {
+                border-color: var(--accent);
+                color: var(--accent);
+            }
 
-        .robot-img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            opacity: 0.95;
-            filter: saturate(0.9) contrast(1.05);
-        }
+            button:disabled {
+                opacity: .35;
+                cursor: not-allowed;
+            }
 
-        .widget {
-            position: absolute;
-            min-width: 220px;
-            background: rgba(15, 18, 32, .84);
-            border: 1px solid rgba(255, 255, 255, .14);
-            border-radius: 14px;
-            padding: 10px;
-            transform: translate(-50%, -50%);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
-        }
+            .danger {
+                color: var(--danger);
+            }
 
-        .widget.selected {
-            outline: 2px solid var(--accent);
-            background: rgba(38, 58, 95, .85);
-        }
+            .robot-img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                opacity: 0.95;
+                filter: saturate(0.9) contrast(1.05);
+            }
 
-        .widget .label {
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
+            /* Widgets: fixed size + top-left anchor (no translate centering) */
+            .widget {
+                position: absolute;
+                width: 220px;
+                /* fixed (was min-width) */
+                background: rgba(15, 18, 32, .84);
+                border: 1px solid rgba(255, 255, 255, .14);
+                border-radius: 14px;
+                padding: 10px;
+                transform: none;
+                /* was translate(-50%, -50%) */
+                box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+            }
 
-        select {
-            width: 100%;
-            padding: 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, .18);
-            background: #0f1220;
-            color: var(--text);
-        }
+            .widget.selected {
+                outline: 2px solid var(--accent);
+                background: rgba(38, 58, 95, .85);
+            }
 
-        .widget .btnrow {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
+            .widget .label {
+                font-weight: 600;
+                margin-bottom: 8px;
+            }
 
-        .widget .btnrow button {
-            flex: 1;
-        }
+            select {
+                width: 100%;
+                padding: 10px;
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, .18);
+                background: #0f1220;
+                color: var(--text);
+            }
 
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
+            .widget .btnrow {
+                display: flex;
+                gap: 10px;
+                margin-top: 10px;
+            }
 
-        input[type="number"] {
-            width: 100%;
-            padding: 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, .18);
-            background: #0f1220;
-            color: var(--text);
-        }
+            .widget .btnrow button {
+                flex: 1;
+            }
 
-        input[type="checkbox"] {
-            transform: scale(1.1);
-        }
+            .field {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
 
-        .divider {
-            height: 1px;
-            background: rgba(255, 255, 255, .10);
-            margin: 4px 0;
-        }
+            input[type="number"] {
+                width: 100%;
+                padding: 10px;
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, .18);
+                background: #0f1220;
+                color: var(--text);
+            }
 
-        .angle {
-            min-width: 110px;
-            text-align: center;
-            font-size: 20px;
-            font-weight: 700;
-            padding: 10px 14px;
-            border: 1px solid rgba(255, 255, 255, .14);
-            border-radius: 14px;
-            background: #0f1220;
-        }
+            input[type="checkbox"] {
+                transform: scale(1.1);
+            }
 
-        .steps {
-            display: flex;
-            gap: 8px;
-        }
+            .divider {
+                height: 1px;
+                background: rgba(255, 255, 255, .10);
+                margin: 4px 0;
+            }
 
-        .steps button {
-            min-width: 64px;
-        }
-    </style>
-</head>
+            .angle {
+                min-width: 110px;
+                text-align: center;
+                font-size: 20px;
+                font-weight: 700;
+                padding: 10px 14px;
+                border: 1px solid rgba(255, 255, 255, .14);
+                border-radius: 14px;
+                background: #0f1220;
+            }
 
-<body>
-    <div class="wrap">
-        <div class="main" id="robot-panel">
-            <img class="robot-img"
-                src="https://images.unsplash.com/photo-1529429611273-1f7b0fbe0a2b?auto=format&fit=crop&w=1400&q=80"
-                alt="Robot" />
-        </div>
+            .steps {
+                display: flex;
+                gap: 8px;
+            }
 
-        <div class="sidebar">
-            <div>
-                <div class="row">
-                    <div>
-                        <div style="font-size:18px;font-weight:800;">Doggo Config</div>
-                        <div class="muted">Assign channels + set per-location limits.</div>
+            .steps button {
+                min-width: 64px;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="wrap">
+            <div class="main" id="robot-panel">
+                <img class="robot-img"
+                    src="https://images.unsplash.com/photo-1529429611273-1f7b0fbe0a2b?auto=format&fit=crop&w=1400&q=80"
+                    alt="Robot" />
+            </div>
+
+            <div class="sidebar">
+                <div>
+                    <div class="row">
+                        <div>
+                            <div style="font-size:18px;font-weight:800;">Doggo Config</div>
+                            <div class="muted">Assign channels + set per-location limits.</div>
+                        </div>
                     </div>
+                    <div id="hw-status" class="muted" style="margin-top:8px;"></div>
                 </div>
-                <div id="hw-status" class="muted" style="margin-top:8px;"></div>
+
+                <div class="divider"></div>
+
+                <div class="row">
+                    <button id="saveBtn" class="primary" disabled>Save</button>
+                    <button id="resetBtn" disabled>Reset</button>
+                </div>
+
+                <div class="divider"></div>
+
+                <div>
+                    <div style="font-weight:800; margin-bottom:8px;">Selected location</div>
+                    <div id="selectedLabel" class="muted">None</div>
+                </div>
+
+                <div class="field">
+                    <label class="muted">Min angle (deg)</label>
+                    <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
+                </div>
+
+                <div class="field">
+                    <label class="muted">Max angle (deg)</label>
+                    <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
+                </div>
+
+                <div class="row">
+                    <label class="muted" for="invertChk">Invert</label>
+                    <input id="invertChk" type="checkbox" disabled />
+                </div>
+
+                <div class="muted">
+                    Limits apply when you send commands in this app and will be saved to
+                    <code>config/config_file.json</code>.
+                </div>
             </div>
 
-            <div class="divider"></div>
-
-            <div class="row">
-                <button id="saveBtn" class="primary" disabled>Save</button>
-                <button id="resetBtn" disabled>Reset</button>
-            </div>
-
-            <div class="divider"></div>
-
-            <div>
-                <div style="font-weight:800; margin-bottom:8px;">Selected location</div>
-                <div id="selectedLabel" class="muted">None</div>
-            </div>
-
-            <div class="field">
-                <label class="muted">Min angle (deg)</label>
-                <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
-            </div>
-
-            <div class="field">
-                <label class="muted">Max angle (deg)</label>
-                <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
-            </div>
-
-            <div class="row">
-                <label class="muted" for="invertChk">Invert</label>
-                <input id="invertChk" type="checkbox" disabled />
-            </div>
-
-            <div class="muted">
-                Limits apply when you send commands in this app and will be saved to
-                <code>config/config_file.json</code>.
+            <div class="bar">
+                <div class="steps" id="negSteps"></div>
+                <div class="angle" id="angleDisplay">0°</div>
+                <div class="steps" id="posSteps"></div>
             </div>
         </div>
 
-        <div class="bar">
-            <div class="steps" id="negSteps"></div>
-            <div class="angle" id="angleDisplay">0°</div>
-            <div class="steps" id="posSteps"></div>
-        </div>
-    </div>
+        <script>
+            /* -------------------- State -------------------- */
+            let locations = [];
+            let draft = null;                 // full draft config object
+            let availableChannels = [];
+            let selectedLocation = null;
+            let currentAngle = 0;
 
-    <script>
-        /* -------------------- State -------------------- */
-        let locations = [];
-        let draft = null;                 // full draft config object
-        let availableChannels = [];
-        let selectedLocation = null;
-        let currentAngle = 0;
+            const steps = [1, 5, 10];
 
-        const steps = [1, 5, 10];
+            /* Widget layout (pixel-based, locked)
+               Panel minimum: 980x680, widget width: 220px */
+            const widgetPositions = {
+                // front row
+                front_left_hip: { x: 20, y: 80 },
+                front_right_hip: { x: 740, y: 80 },
 
-        /* Widget layout (percent-based, tweak freely) */
-        const widgetPositions = {
-            front_left_hip: { x: 15, y: 30 },
-            front_left_knee: { x: 15, y: 45 },
-            front_right_hip: { x: 70, y: 30 },
-            front_right_knee: { x: 70, y: 45 },
-            back_left_hip: { x: 25, y: 65 },
-            back_left_knee: { x: 25, y: 80 },
-            back_right_hip: { x: 60, y: 65 },
-            back_right_knee: { x: 60, y: 80 },
-        };
+                // second row
+                front_left_knee: { x: 20, y: 210 },
+                front_right_knee: { x: 740, y: 210 },
 
-        /* -------------------- API helpers -------------------- */
-        async function api(url, method = "GET", body = null) {
-            const opts = { method, headers: {} };
-            if (body) {
-                opts.headers["Content-Type"] = "application/json";
-                opts.body = JSON.stringify(body);
+                // back row
+                back_left_hip: { x: 140, y: 380 },
+                back_right_hip: { x: 620, y: 380 },
+
+                // last row
+                back_left_knee: { x: 140, y: 510 },
+                back_right_knee: { x: 620, y: 510 },
+            };
+
+            /* -------------------- API helpers -------------------- */
+            async function api(url, method = "GET", body = null) {
+                const opts = { method, headers: {} };
+                if (body) {
+                    opts.headers["Content-Type"] = "application/json";
+                    opts.body = JSON.stringify(body);
+                }
+                const res = await fetch(url, opts);
+                const data = await res.json();
+                return { ok: res.ok, status: res.status, data };
             }
-            const res = await fetch(url, opts);
-            const data = await res.json();
-            return { ok: res.ok, status: res.status, data };
-        }
 
-        /* -------------------- Render -------------------- */
-        function renderWidgets() {
-            const panel = document.getElementById("robot-panel");
-            panel.querySelectorAll(".widget").forEach(w => w.remove());
+            /* -------------------- Render -------------------- */
+            function renderWidgets() {
+                const panel = document.getElementById("robot-panel");
+                panel.querySelectorAll(".widget").forEach(w => w.remove());
 
-            locations.forEach(loc => {
-                const pos = widgetPositions[loc.key] || { x: 50, y: 50 };
+                locations.forEach(loc => {
+                    const pos = widgetPositions[loc.key] || { x: 20, y: 20 };
 
-                const w = document.createElement("div");
-                w.className = "widget" + (selectedLocation === loc.key ? " selected" : "");
-                w.style.left = `${pos.x}%`;
-                w.style.top = `${pos.y}%`;
+                    const w = document.createElement("div");
+                    w.className = "widget" + (selectedLocation === loc.key ? " selected" : "");
+                    w.style.left = `${pos.x}px`;
+                    w.style.top = `${pos.y}px`;
 
-                const label = document.createElement("div");
-                label.className = "label";
-                label.textContent = loc.label;
-                w.appendChild(label);
+                    const label = document.createElement("div");
+                    label.className = "label";
+                    label.textContent = loc.label;
+                    w.appendChild(label);
 
-                const sel = document.createElement("select");
-                sel.dataset.loc = loc.key;
+                    const sel = document.createElement("select");
+                    sel.dataset.loc = loc.key;
 
-                // option: unassigned
-                const optNone = document.createElement("option");
-                optNone.value = "";
-                optNone.textContent = "— Unassigned —";
-                sel.appendChild(optNone);
+                    // option: unassigned
+                    const optNone = document.createElement("option");
+                    optNone.value = "";
+                    optNone.textContent = "— Unassigned —";
+                    sel.appendChild(optNone);
 
-                // Build options from availability pool plus this location's current channel (if any)
-                const current = draft.locations[loc.key].channel;
-                const pool = [...availableChannels];
-                if (current !== null && current !== undefined && !pool.includes(current)) pool.push(current);
-                pool.sort((a, b) => a - b);
+                    // Build options from availability pool plus this location's current channel (if any)
+                    const current = draft.locations[loc.key].channel;
+                    const pool = [...availableChannels];
+                    if (current !== null && current !== undefined && !pool.includes(current)) pool.push(current);
+                    pool.sort((a, b) => a - b);
 
-                pool.forEach(ch => {
-                    const o = document.createElement("option");
-                    o.value = String(ch);
-                    o.textContent = `Channel ${ch}`;
-                    sel.appendChild(o);
-                });
+                    pool.forEach(ch => {
+                        const o = document.createElement("option");
+                        o.value = String(ch);
+                        o.textContent = `Channel ${ch}`;
+                        sel.appendChild(o);
+                    });
 
-                sel.value = (current === null || current === undefined) ? "" : String(current);
+                    sel.value = (current === null || current === undefined) ? "" : String(current);
 
-                sel.addEventListener("change", async (e) => {
-                    const v = e.target.value;
-                    const ch = v === "" ? null : parseInt(v, 10);
-                    const resp = await api("/api/channel", "POST", { location: loc.key, channel: ch });
-                    if (!resp.ok) {
-                        alert(resp.data.error || "Failed to set channel");
-                    } else {
-                        draft = resp.data.draft;
-                        availableChannels = resp.data.available_channels;
-                        setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+                    sel.addEventListener("change", async (e) => {
+                        const v = e.target.value;
+                        const ch = v === "" ? null : parseInt(v, 10);
+                        const resp = await api("/api/channel", "POST", { location: loc.key, channel: ch });
+                        if (!resp.ok) {
+                            alert(resp.data.error || "Failed to set channel");
+                        } else {
+                            draft = resp.data.draft;
+                            availableChannels = resp.data.available_channels;
+                            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+                            renderWidgets();
+                        }
+                    });
+
+                    w.appendChild(sel);
+
+                    const btnRow = document.createElement("div");
+                    btnRow.className = "btnrow";
+
+                    const selectBtn = document.createElement("button");
+                    selectBtn.textContent = "Select";
+                    selectBtn.className = "primary";
+                    selectBtn.addEventListener("click", () => {
+                        selectedLocation = loc.key;
+                        syncSelectedSidebar();
                         renderWidgets();
-                    }
+                    });
+
+                    btnRow.appendChild(selectBtn);
+                    w.appendChild(btnRow);
+
+                    panel.appendChild(w);
+                });
+            }
+
+            function setSaveResetEnabled(saveEnabled, resetEnabled) {
+                document.getElementById("saveBtn").disabled = !saveEnabled;
+                document.getElementById("resetBtn").disabled = !resetEnabled;
+            }
+
+            function renderControlBar() {
+                const neg = document.getElementById("negSteps");
+                const pos = document.getElementById("posSteps");
+                neg.innerHTML = "";
+                pos.innerHTML = "";
+
+                steps.slice().reverse().forEach(s => {
+                    const b = document.createElement("button");
+                    b.textContent = `-${s}`;
+                    b.addEventListener("click", () => adjustAngle(-s));
+                    neg.appendChild(b);
                 });
 
-                w.appendChild(sel);
-
-                const btnRow = document.createElement("div");
-                btnRow.className = "btnrow";
-
-                const selectBtn = document.createElement("button");
-                selectBtn.textContent = "Select";
-                selectBtn.className = "primary";
-                selectBtn.addEventListener("click", () => {
-                    selectedLocation = loc.key;
-                    syncSelectedSidebar();
-                    renderWidgets();
+                steps.forEach(s => {
+                    const b = document.createElement("button");
+                    b.textContent = `+${s}`;
+                    b.addEventListener("click", () => adjustAngle(+s));
+                    pos.appendChild(b);
                 });
 
-                btnRow.appendChild(selectBtn);
-                w.appendChild(btnRow);
+                document.getElementById("angleDisplay").textContent = `${currentAngle}°`;
+            }
 
-                panel.appendChild(w);
+            async function adjustAngle(delta) {
+                if (!selectedLocation) {
+                    alert("Select a location first.");
+                    return;
+                }
+                currentAngle = Math.max(0, Math.min(270, currentAngle + delta));
+                document.getElementById("angleDisplay").textContent = `${currentAngle}°`;
+
+                const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: currentAngle });
+                if (!resp.ok) {
+                    alert(resp.data.error || "Command failed");
+                }
+            }
+
+            function syncSelectedSidebar() {
+                const labelEl = document.getElementById("selectedLabel");
+                const minEl = document.getElementById("minDeg");
+                const maxEl = document.getElementById("maxDeg");
+                const invEl = document.getElementById("invertChk");
+
+                if (!selectedLocation) {
+                    labelEl.textContent = "None";
+                    minEl.value = "";
+                    maxEl.value = "";
+                    invEl.checked = false;
+                    minEl.disabled = true;
+                    maxEl.disabled = true;
+                    invEl.disabled = true;
+                    return;
+                }
+
+                const loc = locations.find(l => l.key === selectedLocation);
+                labelEl.textContent = loc ? loc.label : selectedLocation;
+
+                const lim = draft.locations[selectedLocation].limits;
+                minEl.value = String(lim.deg_min);
+                maxEl.value = String(lim.deg_max);
+                invEl.checked = !!lim.invert;
+
+                minEl.disabled = false;
+                maxEl.disabled = false;
+                invEl.disabled = false;
+            }
+
+            async function pushLimits() {
+                if (!selectedLocation) return;
+
+                const minEl = document.getElementById("minDeg");
+                const maxEl = document.getElementById("maxDeg");
+                const invEl = document.getElementById("invertChk");
+
+                const deg_min = parseInt(minEl.value, 10);
+                const deg_max = parseInt(maxEl.value, 10);
+                const invert = !!invEl.checked;
+
+                const resp = await api("/api/limits", "POST", { location: selectedLocation, deg_min, deg_max, invert });
+                if (!resp.ok) {
+                    alert(resp.data.error || "Failed to set limits");
+                    return;
+                }
+                draft = resp.data.draft;
+                setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+                syncSelectedSidebar();
+            }
+
+            /* -------------------- Actions -------------------- */
+            async function refresh() {
+                const resp = await api("/api/config");
+                if (!resp.ok) {
+                    alert("Failed to load config");
+                    return;
+                }
+                locations = resp.data.locations;
+                draft = resp.data.draft;
+                availableChannels = resp.data.available_channels;
+                setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+
+                // Hardware status
+                const hw = document.getElementById("hw-status");
+                if (resp.data.hardware_available) {
+                    hw.innerHTML = `Hardware: <b>available</b>`;
+                } else {
+                    const msg = resp.data.hardware_error ? ` (${resp.data.hardware_error})` : "";
+                    hw.innerHTML = `Hardware: <span class="danger"><b>unavailable</b></span>${msg}`;
+                }
+
+                renderWidgets();
+                renderControlBar();
+                syncSelectedSidebar();
+            }
+
+            document.getElementById("saveBtn").addEventListener("click", async () => {
+                const resp = await api("/api/save", "POST", {});
+                if (!resp.ok) {
+                    alert(resp.data.error || "Save failed");
+                    return;
+                }
+                setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
             });
-        }
 
-        function setSaveResetEnabled(saveEnabled, resetEnabled) {
-            document.getElementById("saveBtn").disabled = !saveEnabled;
-            document.getElementById("resetBtn").disabled = !resetEnabled;
-        }
-
-        function renderControlBar() {
-            const neg = document.getElementById("negSteps");
-            const pos = document.getElementById("posSteps");
-            neg.innerHTML = "";
-            pos.innerHTML = "";
-
-            steps.slice().reverse().forEach(s => {
-                const b = document.createElement("button");
-                b.textContent = `-${s}`;
-                b.addEventListener("click", () => adjustAngle(-s));
-                neg.appendChild(b);
+            document.getElementById("resetBtn").addEventListener("click", async () => {
+                const resp = await api("/api/reset", "POST", {});
+                if (!resp.ok) {
+                    alert(resp.data.error || "Reset failed");
+                    return;
+                }
+                draft = resp.data.draft;
+                availableChannels = resp.data.available_channels;
+                setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+                renderWidgets();
+                syncSelectedSidebar();
             });
 
-            steps.forEach(s => {
-                const b = document.createElement("button");
-                b.textContent = `+${s}`;
-                b.addEventListener("click", () => adjustAngle(+s));
-                pos.appendChild(b);
-            });
+            // Limits editing hooks
+            document.getElementById("minDeg").addEventListener("change", pushLimits);
+            document.getElementById("maxDeg").addEventListener("change", pushLimits);
+            document.getElementById("invertChk").addEventListener("change", pushLimits);
 
-            document.getElementById("angleDisplay").textContent = `${currentAngle}°`;
-        }
+            refresh();
+        </script>
+    </body>
 
-        async function adjustAngle(delta) {
-            if (!selectedLocation) {
-                alert("Select a location first.");
-                return;
-            }
-            currentAngle = Math.max(0, Math.min(270, currentAngle + delta));
-            document.getElementById("angleDisplay").textContent = `${currentAngle}°`;
-
-            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: currentAngle });
-            if (!resp.ok) {
-                alert(resp.data.error || "Command failed");
-            }
-        }
-
-        function syncSelectedSidebar() {
-            const labelEl = document.getElementById("selectedLabel");
-            const minEl = document.getElementById("minDeg");
-            const maxEl = document.getElementById("maxDeg");
-            const invEl = document.getElementById("invertChk");
-
-            if (!selectedLocation) {
-                labelEl.textContent = "None";
-                minEl.value = "";
-                maxEl.value = "";
-                invEl.checked = false;
-                minEl.disabled = true;
-                maxEl.disabled = true;
-                invEl.disabled = true;
-                return;
-            }
-
-            const loc = locations.find(l => l.key === selectedLocation);
-            labelEl.textContent = loc ? loc.label : selectedLocation;
-
-            const lim = draft.locations[selectedLocation].limits;
-            minEl.value = String(lim.deg_min);
-            maxEl.value = String(lim.deg_max);
-            invEl.checked = !!lim.invert;
-
-            minEl.disabled = false;
-            maxEl.disabled = false;
-            invEl.disabled = false;
-        }
-
-        async function pushLimits() {
-            if (!selectedLocation) return;
-
-            const minEl = document.getElementById("minDeg");
-            const maxEl = document.getElementById("maxDeg");
-            const invEl = document.getElementById("invertChk");
-
-            const deg_min = parseInt(minEl.value, 10);
-            const deg_max = parseInt(maxEl.value, 10);
-            const invert = !!invEl.checked;
-
-            const resp = await api("/api/limits", "POST", { location: selectedLocation, deg_min, deg_max, invert });
-            if (!resp.ok) {
-                alert(resp.data.error || "Failed to set limits");
-                return;
-            }
-            draft = resp.data.draft;
-            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-            syncSelectedSidebar();
-        }
-
-        /* -------------------- Actions -------------------- */
-        async function refresh() {
-            const resp = await api("/api/config");
-            if (!resp.ok) {
-                alert("Failed to load config");
-                return;
-            }
-            locations = resp.data.locations;
-            draft = resp.data.draft;
-            availableChannels = resp.data.available_channels;
-            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-
-            // Hardware status
-            const hw = document.getElementById("hw-status");
-            if (resp.data.hardware_available) {
-                hw.innerHTML = `Hardware: <b>available</b>`;
-            } else {
-                const msg = resp.data.hardware_error ? ` (${resp.data.hardware_error})` : "";
-                hw.innerHTML = `Hardware: <span class="danger"><b>unavailable</b></span>${msg}`;
-            }
-
-            renderWidgets();
-            renderControlBar();
-            syncSelectedSidebar();
-        }
-
-        document.getElementById("saveBtn").addEventListener("click", async () => {
-            const resp = await api("/api/save", "POST", {});
-            if (!resp.ok) {
-                alert(resp.data.error || "Save failed");
-                return;
-            }
-            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-        });
-
-        document.getElementById("resetBtn").addEventListener("click", async () => {
-            const resp = await api("/api/reset", "POST", {});
-            if (!resp.ok) {
-                alert(resp.data.error || "Reset failed");
-                return;
-            }
-            draft = resp.data.draft;
-            availableChannels = resp.data.available_channels;
-            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-            renderWidgets();
-            syncSelectedSidebar();
-        });
-
-        // Limits editing hooks
-        document.getElementById("minDeg").addEventListener("change", pushLimits);
-        document.getElementById("maxDeg").addEventListener("change", pushLimits);
-        document.getElementById("invertChk").addEventListener("change", pushLimits);
-
-        refresh();
-    </script>
-</body>
-
-</html>
+    </html>
+    EOF
