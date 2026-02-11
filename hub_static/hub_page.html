@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Doggo Hub</title>
+    <style>
+        :root {
+            --bg: #0f1220;
+            --panel: #181c2f;
+            --accent: #4da3ff;
+            --text: #e6e8f0;
+            --muted: #9aa0b3;
+            --danger: #ff5d5d;
+            --ok: #3ddc97;
+            --warn: #ffd166;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .wrap {
+            display: grid;
+            grid-template-columns: 420px 1fr;
+            gap: 12px;
+            padding: 12px;
+            height: 100vh;
+        }
+
+        .panel {
+            background: var(--panel);
+            border-radius: 16px;
+            padding: 14px;
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 18px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .col {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, .18);
+            border-radius: 12px;
+            padding: 10px 12px;
+            cursor: pointer;
+        }
+
+        button.primary {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        button.danger {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        button:disabled {
+            opacity: .35;
+            cursor: not-allowed;
+        }
+
+        .badge {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, .14);
+            background: #0f1220;
+            font-size: 13px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--muted);
+        }
+
+        .dot.ok {
+            background: var(--ok);
+        }
+
+        .dot.warn {
+            background: var(--warn);
+        }
+
+        .dot.bad {
+            background: var(--danger);
+        }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 160px 1fr;
+            gap: 6px 10px;
+            font-size: 13px;
+        }
+
+        code {
+            background: #0f1220;
+            padding: 2px 6px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, .12);
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, .18);
+            background: #0f1220;
+            color: var(--text);
+        }
+
+        .divider {
+            height: 1px;
+            background: rgba(255, 255, 255, .10);
+            margin: 6px 0;
+        }
+
+        .log {
+            height: calc(100vh - 48px);
+            overflow: auto;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.35;
+            padding: 12px;
+            border-radius: 14px;
+            background: #0f1220;
+            border: 1px solid rgba(255, 255, 255, .12);
+            white-space: pre-wrap;
+        }
+
+        .pillbar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <!-- Left control panel -->
+        <div class="panel col">
+            <div>
+                <h1>Doggo Hub</h1>
+                <div class="muted">Separate runtime controller. Uses <code>config/config_file.json</code> +
+                    <code>config/location_order.json</code>.</div>
+            </div>
+
+            <div class="row">
+                <span class="badge" id="badgeEnabled"><span class="dot" id="dotEnabled"></span><span
+                        id="txtEnabled">enabled: false</span></span>
+                <span class="badge" id="badgeRunning"><span class="dot" id="dotRunning"></span><span
+                        id="txtRunning">running: false</span></span>
+            </div>
+
+            <div class="pillbar">
+                <span class="badge" id="badgeConfig"><span class="dot" id="dotConfig"></span><span
+                        id="txtConfig">config: not loaded</span></span>
+                <span class="badge" id="badgeProgram"><span class="dot" id="dotProgram"></span><span
+                        id="txtProgram">program: not loaded</span></span>
+                <span class="badge" id="badgeHw"><span class="dot" id="dotHw"></span><span id="txtHw">hardware:
+                        unknown</span></span>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="row">
+                <button class="primary" id="btnLoadConfig">Load Config</button>
+                <button class="primary" id="btnLoadProgram">Load Program (stub)</button>
+            </div>
+
+            <div class="row">
+                <button class="primary" id="btnEnable">Enable</button>
+                <button class="primary" id="btnStart">Start</button>
+                <button class="danger" id="btnStop">Stop</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="col">
+                <div class="row" style="justify-content:space-between;">
+                    <div>
+                        <div style="font-weight:800;">Timing</div>
+                        <div class="muted">Applies to all programs (no program metadata).</div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div style="flex:1;">
+                        <div class="muted">slice_period_ms</div>
+                        <input id="inpSlice" type="number" min="1" step="1" />
+                    </div>
+                    <div style="flex:1;">
+                        <div class="muted">overrun_warn_ms</div>
+                        <input id="inpWarn" type="number" min="0" step="0.1" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <button id="btnApplySettings" class="primary">Apply Settings</button>
+                    <span class="muted">Warning triggers when lateness ≥ overrun_warn_ms.</span>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div>
+                <div style="font-weight:800; margin-bottom:8px;">Status</div>
+                <div class="kv">
+                    <div class="muted">frame_idx</div>
+                    <div id="kvFrame">-</div>
+                    <div class="muted">overrun_count</div>
+                    <div id="kvOverruns">-</div>
+                    <div class="muted">last_overrun_ms</div>
+                    <div id="kvLastOverrun">-</div>
+                    <div class="muted">last_warning</div>
+                    <div id="kvWarning">-</div>
+                    <div class="muted">hardware_error</div>
+                    <div id="kvHwErr">-</div>
+                </div>
+            </div>
+
+            <div class="row">
+                <button id="btnRefresh">Refresh</button>
+                <span class="muted">Auto-refresh every 500ms.</span>
+            </div>
+        </div>
+
+        <!-- Right log/status panel -->
+        <div class="panel">
+            <div class="row" style="justify-content:space-between; margin-bottom:10px;">
+                <div>
+                    <h1 style="margin:0;">Console</h1>
+                    <div class="muted">UI log of API responses + warnings. (Backend also logs via stdout.)</div>
+                </div>
+                <div class="row">
+                    <button id="btnClear">Clear</button>
+                </div>
+            </div>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        // ------------------------
+        // Small UI logger
+        // ------------------------
+        const logEl = document.getElementById("log");
+        function log(msg) {
+            const ts = new Date().toLocaleTimeString();
+            logEl.textContent += `[${ts}] ${msg}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        function fmt(v) {
+            if (v === null || v === undefined) return "-";
+            if (typeof v === "string" && v.trim() === "") return "-";
+            return String(v);
+        }
+
+        // ------------------------
+        // API helper
+        // ------------------------
+        async function api(url, method = "GET", body = null) {
+            const opts = { method, headers: {} };
+            if (body) {
+                opts.headers["Content-Type"] = "application/json";
+                opts.body = JSON.stringify(body);
+            }
+            const res = await fetch(url, opts);
+            const data = await res.json();
+            return { ok: res.ok, status: res.status, data };
+        }
+
+        // ------------------------
+        // Status render
+        // ------------------------
+        function setBadge(dotId, txtId, ok, warn = false, text = "") {
+            const dot = document.getElementById(dotId);
+            const txt = document.getElementById(txtId);
+            dot.className = "dot" + (ok ? " ok" : (warn ? " warn" : " bad"));
+            txt.textContent = text;
+        }
+
+        function updateButtons(st) {
+            // Keep buttons enabled; backend enforces preconditions.
+            // But we can disable Start when clearly impossible.
+            document.getElementById("btnStart").disabled = !(st.enabled && st.config_loaded && st.program_loaded && !st.running);
+            document.getElementById("btnStop").disabled = !st.running && !st.enabled; // allow stop while enabled too
+        }
+
+        function renderStatus(st) {
+            setBadge("dotEnabled", "txtEnabled", !!st.enabled, false, `enabled: ${!!st.enabled}`);
+            setBadge("dotRunning", "txtRunning", !!st.running, false, `running: ${!!st.running}`);
+
+            setBadge("dotConfig", "txtConfig", !!st.config_loaded, false, `config: ${st.config_loaded ? "loaded" : "not loaded"}`);
+            setBadge("dotProgram", "txtProgram", !!st.program_loaded, false, `program: ${st.program_loaded ? "loaded" : "not loaded"}`);
+
+            const hwOk = !!st.hardware_available;
+            const hwWarn = !hwOk && st.hardware_error;
+            setBadge("dotHw", "txtHw", hwOk, hwWarn, `hardware: ${hwOk ? "available" : "unavailable"}`);
+
+            document.getElementById("kvFrame").textContent = fmt(st.frame_idx);
+            document.getElementById("kvOverruns").textContent = fmt(st.overrun_count);
+            document.getElementById("kvLastOverrun").textContent = fmt(st.last_overrun_ms);
+            document.getElementById("kvWarning").textContent = fmt(st.last_warning);
+            document.getElementById("kvHwErr").textContent = fmt(st.hardware_error);
+
+            // Populate inputs once if blank
+            const inpSlice = document.getElementById("inpSlice");
+            const inpWarn = document.getElementById("inpWarn");
+            if (!inpSlice.value) inpSlice.value = st.slice_period_ms;
+            if (!inpWarn.value) inpWarn.value = st.overrun_warn_ms;
+
+            updateButtons(st);
+
+            // Highlight warnings in log
+            if (st.last_warning) log(`WARN: ${st.last_warning}`);
+            if (st.hardware_error && !st.hardware_available) log(`HW: ${st.hardware_error}`);
+        }
+
+        async function refreshStatus() {
+            const resp = await api("/api/status");
+            if (!resp.ok) {
+                log(`ERR /api/status (${resp.status})`);
+                return;
+            }
+            renderStatus(resp.data);
+        }
+
+        // ------------------------
+        // Button actions
+        // ------------------------
+        document.getElementById("btnLoadConfig").addEventListener("click", async () => {
+            const resp = await api("/api/load_config", "POST", {});
+            log(`POST /api/load_config -> ${resp.status} ${resp.data.message || ""}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnLoadProgram").addEventListener("click", async () => {
+            // Still stubbed in backend for now.
+            const resp = await api("/api/load_program", "POST", { "num_frames": 200 });
+            log(`POST /api/load_program -> ${resp.status} ${resp.data.message || ""}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnEnable").addEventListener("click", async () => {
+            const resp = await api("/api/enable", "POST", {});
+            log(`POST /api/enable -> ${resp.status} ${resp.data.message || ""}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnStart").addEventListener("click", async () => {
+            const resp = await api("/api/start", "POST", {});
+            log(`POST /api/start -> ${resp.status} ${resp.data.message || ""}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnStop").addEventListener("click", async () => {
+            const resp = await api("/api/stop", "POST", {});
+            log(`POST /api/stop -> ${resp.status} ${resp.data.message || ""}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnApplySettings").addEventListener("click", async () => {
+            const slice_period_ms = parseFloat(document.getElementById("inpSlice").value);
+            const overrun_warn_ms = parseFloat(document.getElementById("inpWarn").value);
+            const resp = await api("/api/settings", "POST", { slice_period_ms, overrun_warn_ms });
+            log(`POST /api/settings -> ${resp.status}`);
+            renderStatus(resp.data.status || resp.data);
+        });
+
+        document.getElementById("btnRefresh").addEventListener("click", refreshStatus);
+        document.getElementById("btnClear").addEventListener("click", () => { logEl.textContent = ""; });
+
+        // ------------------------
+        // Auto refresh loop
+        // ------------------------
+        refreshStatus();
+        setInterval(refreshStatus, 500);
+    </script>
+</body>
+
+</html>
