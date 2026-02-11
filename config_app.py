@@ -9,7 +9,6 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from hardware.pca9685 import PCA9685, ServoLimits
 
-
 # -----------------------------
 # Doggo constants (config app)
 # -----------------------------
@@ -19,15 +18,20 @@ ANGLE_MAX_DEG = 270
 CHANNEL_MIN = 0
 CHANNEL_MAX = 15
 
-CONFIG_DIR = Path("config")
+# Base dir (no CWD dependence)
+BASE_DIR = Path(__file__).resolve().parent
+
+CONFIG_DIR = BASE_DIR / "config"
 CONFIG_FILE = CONFIG_DIR / "config_file.json"
 LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
+
+STATIC_DIR = BASE_DIR / "static"
+STATIC_PAGE = "config_page.html"
 
 # PCA9685 constants (locked frequency is inside driver)
 I2C_BUS = 1
 I2C_ADDR = 0x40
 
-BASE_DIR = Path(__file__).resolve().parent
 
 # -----------------------------
 # Fixed locations (backend-owned)
@@ -78,10 +82,7 @@ def _empty_config() -> Dict[str, Any]:
     """
     return {
         "version": 2,
-        "locations": {
-            loc.key: {"channel": None, "limits": _default_limits()}
-            for loc in LOCATIONS
-        },
+        "locations": {loc.key: {"channel": None, "limits": _default_limits()} for loc in LOCATIONS},
     }
 
 
@@ -109,18 +110,17 @@ def _load_or_init_location_order() -> List[str]:
         if not isinstance(order, list):
             return default_order
         order = [str(x) for x in order]
-        # Keep only known keys, preserve file order; then append missing ones.
+
         known = {loc.key for loc in LOCATIONS}
         cleaned = [k for k in order if k in known]
         for k in default_order:
             if k not in cleaned:
                 cleaned.append(k)
-        # If file had garbage, rewrite to cleaned canonical version.
+
         if cleaned != order:
             LOCATION_ORDER_FILE.write_text(json.dumps({"version": 1, "position_order": cleaned}, indent=2))
         return cleaned
     except Exception:
-        # If file corrupted, rewrite safely.
         LOCATION_ORDER_FILE.write_text(json.dumps({"version": 1, "position_order": default_order}, indent=2))
         return default_order
 
@@ -156,10 +156,7 @@ def _load_saved_config() -> Dict[str, Any]:
             else:
                 try:
                     ch_i = int(ch)
-                    if CHANNEL_MIN <= ch_i <= CHANNEL_MAX:
-                        out["locations"][loc.key]["channel"] = ch_i
-                    else:
-                        out["locations"][loc.key]["channel"] = None
+                    out["locations"][loc.key]["channel"] = ch_i if (CHANNEL_MIN <= ch_i <= CHANNEL_MAX) else None
                 except Exception:
                     out["locations"][loc.key]["channel"] = None
 
@@ -226,7 +223,7 @@ def _get_limits(cfg: Dict[str, Any], loc_key: str) -> ServoLimits:
 # -----------------------------
 # App init
 # -----------------------------
-app = Flask(__name__, static_folder="static")
+app = Flask(__name__, static_folder=str(STATIC_DIR))
 
 # Ensure shared location order exists (canonical ordering)
 _location_order: List[str] = _load_or_init_location_order()
@@ -234,7 +231,6 @@ _location_order: List[str] = _load_or_init_location_order()
 # saved vs draft state
 _saved_cfg: Dict[str, Any] = _load_saved_config()
 _draft_cfg: Dict[str, Any] = json.loads(json.dumps(_saved_cfg))  # deep-ish copy
-
 
 # Hardware driver (optional)
 pca: Optional[PCA9685] = None
@@ -251,8 +247,8 @@ except Exception as e:
 # -----------------------------
 @app.get("/")
 def index():
-    return send_from_directory(str(BASE_DIR / "static"), "config_page.html")
-
+    # absolute path, no CWD dependence
+    return send_from_directory(str(STATIC_DIR), STATIC_PAGE)
 
 
 # -----------------------------
@@ -398,7 +394,7 @@ def api_command():
     Body: { "location": "<key>", "angle_deg": <int> }
 
     Uses DRAFT config (so you can test before saving).
-    Applies per-location limits/invert.
+    Applies per-location limits/invert (via driver).
     """
     global _draft_cfg, pca
 
@@ -406,6 +402,7 @@ def api_command():
         return jsonify({"ok": False, "error": "Hardware not available (PCA9685 init failed)."}), 503
 
     data = request.get_json(force=True)
+
     loc_key = str(data.get("location", "")).strip()
     if loc_key not in _draft_cfg["locations"]:
         return jsonify({"ok": False, "error": f"Unknown location '{loc_key}'"}), 400
@@ -419,9 +416,13 @@ def api_command():
     except Exception:
         return jsonify({"ok": False, "error": "angle_deg must be an integer"}), 400
 
-    angle = _clamp_int(angle, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+    # Strict global validation (UI stays dumb; backend enforces)
+    if not (ANGLE_MIN_DEG <= angle <= ANGLE_MAX_DEG):
+        return jsonify({"ok": False, "error": f"angle_deg out of range {ANGLE_MIN_DEG}..{ANGLE_MAX_DEG}"}), 400
 
     limits = _get_limits(_draft_cfg, loc_key)
+
+    # Driver applies per-location clamp/invert inside [deg_min..deg_max]
     pca.set_channel_angle_deg(int(ch), angle, limits=limits)
 
     return jsonify({"ok": True})
@@ -431,5 +432,4 @@ def api_command():
 # Main
 # -----------------------------
 if __name__ == "__main__":
-    # LAN access: host="0.0.0.0"
     app.run(host="0.0.0.0", port=5000, debug=True)
