@@ -101,30 +101,37 @@ class PCA9685:
         then write PWM.
 
         IMPORTANT:
-        - Limits only clamp/invert; they DO NOT rescale the mapping.
-        - This guarantees a stable interpretation of angles (e.g., 135 stays center in pulse space).
+        - Mapping is always global (0..270). Limits do NOT rescale mapping.
+        - Invert is global (angle -> 270-angle), not relative to clamp window.
+        - When inverted, the clamp window is also inverted so the allowed physical window remains consistent.
         """
         channel = _clamp_int(int(channel), 0, 15)
 
-        # Force caller input into logical domain first (prevents weird negatives/huge values)
-        angle_deg = _clamp_int(int(angle_deg), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
-
         eff_limits = limits or self.channel_limits.get(channel) or self.default_limits
 
-        deg_min = _clamp_int(int(eff_limits.deg_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
-        deg_max = _clamp_int(int(eff_limits.deg_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+        # Normalize requested angle into global domain first
+        angle_deg = _clamp_int(int(angle_deg), 0, 270)
+
+        # Read clamp window (global domain)
+        deg_min = _clamp_int(int(eff_limits.deg_min), 0, 270)
+        deg_max = _clamp_int(int(eff_limits.deg_max), 0, 270)
         if deg_max < deg_min:
             deg_min, deg_max = deg_max, deg_min
 
-        # Clamp into per-servo window
+        # Global invert (no dependence on deg_min/deg_max)
+        if eff_limits.invert:
+            angle_deg = 270 - angle_deg
+
+            # Invert the clamp window too so the allowed physical range stays the same
+            inv_min = 270 - deg_max
+            inv_max = 270 - deg_min
+            deg_min, deg_max = (inv_min, inv_max) if inv_min <= inv_max else (inv_max, inv_min)
+
+        # Pure clamp (no rescale, no window-relative transforms)
         angle_deg = _clamp_int(angle_deg, deg_min, deg_max)
 
-        # Invert within [deg_min, deg_max]
-        if eff_limits.invert:
-            angle_deg = deg_max - (angle_deg - deg_min)
-
         # Global mapping (stable)
-        t = angle_deg / float(ANGLE_MAX_DEG)
+        t = angle_deg / 270.0
         if t < 0.0:
             t = 0.0
         elif t > 1.0:
@@ -134,6 +141,7 @@ class PCA9685:
             self.pulse_range.min_us + t * (self.pulse_range.max_us - self.pulse_range.min_us)
         ))
         self.set_channel_pulse_us(channel, pulse_us)
+
 
     def set_channel_pulse_us(self, channel: int, pulse_us: int) -> None:
         channel = _clamp_int(int(channel), 0, 15)
