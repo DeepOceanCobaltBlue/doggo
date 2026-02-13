@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from hardware.pca9685 import PCA9685, ServoLimits
 
+
 # -----------------------------
 # Doggo constants (config app)
 # -----------------------------
@@ -18,15 +19,11 @@ ANGLE_MAX_DEG = 270
 CHANNEL_MIN = 0
 CHANNEL_MAX = 15
 
-# Base dir (no CWD dependence)
-BASE_DIR = Path(__file__).resolve().parent
-
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = Path("config")
 CONFIG_FILE = CONFIG_DIR / "config_file.json"
 LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
-
-STATIC_DIR = BASE_DIR / "static"
-STATIC_PAGE = "config_page.html"
+CHANNEL_NOTES_FILE = CONFIG_DIR / "channel_notes.json"
+CHANNEL_NOTES_MAX_CHARS = 50_000
 
 # PCA9685 constants (locked frequency is inside driver)
 I2C_BUS = 1
@@ -82,7 +79,10 @@ def _empty_config() -> Dict[str, Any]:
     """
     return {
         "version": 2,
-        "locations": {loc.key: {"channel": None, "limits": _default_limits()} for loc in LOCATIONS},
+        "locations": {
+            loc.key: {"channel": None, "limits": _default_limits()}
+            for loc in LOCATIONS
+        },
     }
 
 
@@ -156,7 +156,10 @@ def _load_saved_config() -> Dict[str, Any]:
             else:
                 try:
                     ch_i = int(ch)
-                    out["locations"][loc.key]["channel"] = ch_i if (CHANNEL_MIN <= ch_i <= CHANNEL_MAX) else None
+                    if CHANNEL_MIN <= ch_i <= CHANNEL_MAX:
+                        out["locations"][loc.key]["channel"] = ch_i
+                    else:
+                        out["locations"][loc.key]["channel"] = None
                 except Exception:
                     out["locations"][loc.key]["channel"] = None
 
@@ -221,14 +224,35 @@ def _get_limits(cfg: Dict[str, Any], loc_key: str) -> ServoLimits:
 
 
 # -----------------------------
+# Channel notes helpers
+# -----------------------------
+def _load_channel_notes() -> str:
+    _ensure_config_dir()
+    if not CHANNEL_NOTES_FILE.exists():
+        return ""
+    try:
+        data = json.loads(CHANNEL_NOTES_FILE.read_text())
+        notes = data.get("notes", "")
+        if not isinstance(notes, str):
+            return ""
+        return notes
+    except Exception:
+        return ""
+
+
+def _save_channel_notes(notes: str) -> None:
+    _ensure_config_dir()
+    payload = {"version": 1, "notes": notes}
+    CHANNEL_NOTES_FILE.write_text(json.dumps(payload, indent=2))
+
+
+# -----------------------------
 # App init
 # -----------------------------
-app = Flask(__name__, static_folder=str(STATIC_DIR))
+app = Flask(__name__, static_folder="static")
 
-# Ensure shared location order exists (canonical ordering)
 _location_order: List[str] = _load_or_init_location_order()
 
-# saved vs draft state
 _saved_cfg: Dict[str, Any] = _load_saved_config()
 _draft_cfg: Dict[str, Any] = json.loads(json.dumps(_saved_cfg))  # deep-ish copy
 
@@ -247,8 +271,8 @@ except Exception as e:
 # -----------------------------
 @app.get("/")
 def index():
-    # absolute path, no CWD dependence
-    return send_from_directory(str(STATIC_DIR), STATIC_PAGE)
+    # Your tree has static/config_page.html
+    return send_from_directory("static", "config_page.html")
 
 
 # -----------------------------
@@ -272,6 +296,23 @@ def api_get_config():
             "hardware_error": _pca_error,
         }
     )
+
+
+@app.get("/api/channel_notes")
+def api_get_channel_notes():
+    return jsonify({"ok": True, "notes": _load_channel_notes()})
+
+
+@app.post("/api/channel_notes")
+def api_set_channel_notes():
+    data = request.get_json(force=True)
+    notes = data.get("notes", "")
+    if not isinstance(notes, str):
+        return jsonify({"ok": False, "error": "notes must be a string"}), 400
+    if len(notes) > CHANNEL_NOTES_MAX_CHARS:
+        return jsonify({"ok": False, "error": f"notes too large (max {CHANNEL_NOTES_MAX_CHARS} chars)"}), 413
+    _save_channel_notes(notes)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/channel")
@@ -394,7 +435,7 @@ def api_command():
     Body: { "location": "<key>", "angle_deg": <int> }
 
     Uses DRAFT config (so you can test before saving).
-    Applies per-location limits/invert (via driver).
+    Applies per-location limits/invert.
     """
     global _draft_cfg, pca
 
@@ -402,7 +443,6 @@ def api_command():
         return jsonify({"ok": False, "error": "Hardware not available (PCA9685 init failed)."}), 503
 
     data = request.get_json(force=True)
-
     loc_key = str(data.get("location", "")).strip()
     if loc_key not in _draft_cfg["locations"]:
         return jsonify({"ok": False, "error": f"Unknown location '{loc_key}'"}), 400
@@ -416,20 +456,13 @@ def api_command():
     except Exception:
         return jsonify({"ok": False, "error": "angle_deg must be an integer"}), 400
 
-    # Strict global validation (UI stays dumb; backend enforces)
-    if not (ANGLE_MIN_DEG <= angle <= ANGLE_MAX_DEG):
-        return jsonify({"ok": False, "error": f"angle_deg out of range {ANGLE_MIN_DEG}..{ANGLE_MAX_DEG}"}), 400
+    angle = _clamp_int(angle, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
 
     limits = _get_limits(_draft_cfg, loc_key)
-
-    # Driver applies per-location clamp/invert inside [deg_min..deg_max]
     pca.set_channel_angle_deg(int(ch), angle, limits=limits)
 
     return jsonify({"ok": True})
 
 
-# -----------------------------
-# Main
-# -----------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

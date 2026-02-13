@@ -13,6 +13,7 @@
             --muted: #9aa0b3;
             --selected: #263a5f;
             --danger: #ff5d5d;
+            --ok: #4cff91;
         }
 
         * {
@@ -26,11 +27,10 @@
             color: var(--text);
         }
 
-        /* Lock the robot canvas; scroll instead of overlap */
         .wrap {
             display: grid;
-            grid-template-columns: minmax(980px, 1fr) 360px;
-            grid-template-rows: 1fr 90px;
+            grid-template-columns: 1fr 360px;
+            grid-template-rows: 1fr 140px;
             height: 100vh;
             gap: 12px;
             padding: 12px;
@@ -40,9 +40,7 @@
             background: var(--panel);
             border-radius: 16px;
             position: relative;
-            overflow: auto;
-            min-width: 980px;
-            min-height: 680px;
+            overflow: hidden;
         }
 
         .sidebar {
@@ -52,6 +50,7 @@
             display: flex;
             flex-direction: column;
             gap: 14px;
+            overflow: auto;
         }
 
         .bar {
@@ -59,10 +58,18 @@
             background: var(--panel);
             border-radius: 16px;
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 10px;
+            overflow: hidden;
+        }
+
+        .barRow {
+            display: flex;
             align-items: center;
             justify-content: center;
-            gap: 14px;
-            padding: 10px;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
         .muted {
@@ -100,6 +107,10 @@
             color: var(--danger);
         }
 
+        .ok {
+            color: var(--ok);
+        }
+
         .robot-img {
             width: 100%;
             height: 100%;
@@ -108,15 +119,14 @@
             filter: saturate(0.9) contrast(1.05);
         }
 
-        /* Widgets locked: fixed width + top-left anchor */
         .widget {
             position: absolute;
-            width: 220px;
+            min-width: 220px;
             background: rgba(15, 18, 32, .84);
             border: 1px solid rgba(255, 255, 255, .14);
             border-radius: 14px;
             padding: 10px;
-            transform: none;
+            transform: translate(-50%, -50%);
             box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
         }
 
@@ -169,6 +179,20 @@
             transform: scale(1.1);
         }
 
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            resize: vertical;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, .18);
+            background: #0f1220;
+            color: var(--text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.35;
+        }
+
         .divider {
             height: 1px;
             background: rgba(255, 255, 255, .10);
@@ -184,17 +208,39 @@
             min-width: 64px;
         }
 
-        /* Bottom-bar angle input styled like the previous pill */
-        .angleInput {
-            width: 120px;
-            text-align: center;
-            font-size: 20px;
-            font-weight: 800;
-            padding: 10px 14px;
+        .angleBox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
             border: 1px solid rgba(255, 255, 255, .14);
             border-radius: 14px;
             background: #0f1220;
-            color: var(--text);
+        }
+
+        .angleBox input {
+            width: 110px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 800;
+            padding: 10px 10px;
+        }
+
+        .hotkeys {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .hotkeys button {
+            min-width: 70px;
+        }
+
+        .tiny {
+            font-size: 12px;
+            padding: 8px 10px;
+            border-radius: 10px;
         }
     </style>
 </head>
@@ -247,6 +293,32 @@
                 <input id="invertChk" type="checkbox" disabled />
             </div>
 
+            <div class="divider"></div>
+
+            <div>
+                <div style="font-weight:800; margin-bottom:8px;">Hotkeys (programmable)</div>
+                <div class="muted" style="margin-bottom:8px;">Edit values here; buttons are on the bottom bar.</div>
+                <div class="field" style="gap:10px;">
+                    <input id="hk0" type="number" min="0" max="270" step="1" />
+                    <input id="hk1" type="number" min="0" max="270" step="1" />
+                    <input id="hk2" type="number" min="0" max="270" step="1" />
+                    <input id="hk3" type="number" min="0" max="270" step="1" />
+                    <input id="hk4" type="number" min="0" max="270" step="1" />
+                    <input id="hk5" type="number" min="0" max="270" step="1" />
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div>
+                <div style="font-weight:800; margin-bottom:8px;">Notes</div>
+                <textarea id="notesArea"
+                    placeholder="Saved to config/channel_notes.json (not part of config_file.json)."></textarea>
+                <div id="notesStatus" class="muted" style="margin-top:6px;">—</div>
+            </div>
+
+            <div class="divider"></div>
+
             <div class="muted">
                 Limits apply when you send commands in this app and will be saved to
                 <code>config/config_file.json</code>.
@@ -254,13 +326,20 @@
         </div>
 
         <div class="bar">
-            <div class="steps" id="negSteps"></div>
+            <div class="barRow">
+                <div class="steps" id="negSteps"></div>
 
-            <input id="angleInput" class="angleInput" type="text" inputmode="numeric" autocomplete="off" value="0" />
+                <div class="angleBox">
+                    <input id="angleInput" type="text" inputmode="numeric" value="0" />
+                    <button id="sendBtn" class="primary">Send</button>
+                </div>
 
-            <button id="btnSend" class="primary">Send Command</button>
+                <div class="steps" id="posSteps"></div>
+            </div>
 
-            <div class="steps" id="posSteps"></div>
+            <div class="barRow">
+                <div class="hotkeys" id="hotkeyButtons"></div>
+            </div>
         </div>
     </div>
 
@@ -270,23 +349,30 @@
         let draft = null;                 // full draft config object
         let availableChannels = [];
         let selectedLocation = null;
+
+        // Per-location last commanded angle (persisted)
+        const LAST_ANGLES_KEY = "doggo:lastAngles:v1";
+        let lastAngles = {};
+
+        // Hotkeys (persisted)
+        const HOTKEYS_KEY = "doggo:hotkeys:v1";
+        let hotkeys = [0, 70, 135, 200, 250, 270];
+
+        // Current working angle in the box
         let currentAngle = 0;
 
         const steps = [1, 5, 10];
 
-        /* Widget layout (pixel-based, locked) */
+        /* Widget layout (percent-based, tweak freely) */
         const widgetPositions = {
-            front_left_hip: { x: 20, y: 80 },
-            front_right_hip: { x: 740, y: 80 },
-
-            front_left_knee: { x: 20, y: 210 },
-            front_right_knee: { x: 740, y: 210 },
-
-            back_left_hip: { x: 140, y: 380 },
-            back_right_hip: { x: 620, y: 380 },
-
-            back_left_knee: { x: 140, y: 510 },
-            back_right_knee: { x: 620, y: 510 },
+            front_left_hip: { x: 15, y: 30 },
+            front_left_knee: { x: 15, y: 45 },
+            front_right_hip: { x: 70, y: 30 },
+            front_right_knee: { x: 70, y: 45 },
+            back_left_hip: { x: 25, y: 65 },
+            back_left_knee: { x: 25, y: 80 },
+            back_right_hip: { x: 60, y: 65 },
+            back_right_knee: { x: 60, y: 80 },
         };
 
         /* -------------------- API helpers -------------------- */
@@ -301,18 +387,84 @@
             return { ok: res.ok, status: res.status, data };
         }
 
+        /* -------------------- Persistence -------------------- */
+        function loadLastAngles() {
+            try {
+                const s = localStorage.getItem(LAST_ANGLES_KEY);
+                lastAngles = s ? JSON.parse(s) : {};
+                if (typeof lastAngles !== "object" || lastAngles === null) lastAngles = {};
+            } catch {
+                lastAngles = {};
+            }
+        }
+
+        function saveLastAngles() {
+            try {
+                localStorage.setItem(LAST_ANGLES_KEY, JSON.stringify(lastAngles));
+            } catch { }
+        }
+
+        function loadHotkeys() {
+            try {
+                const s = localStorage.getItem(HOTKEYS_KEY);
+                const arr = s ? JSON.parse(s) : null;
+                if (Array.isArray(arr) && arr.length === 6) {
+                    hotkeys = arr.map(v => clampInt(toInt(v, 0), 0, 270));
+                }
+            } catch { }
+        }
+
+        function saveHotkeys() {
+            try {
+                localStorage.setItem(HOTKEYS_KEY, JSON.stringify(hotkeys));
+            } catch { }
+        }
+
+        /* -------------------- Small utils -------------------- */
+        function clampInt(v, lo, hi) {
+            return Math.max(lo, Math.min(hi, v));
+        }
+
+        function toInt(v, fallback = null) {
+            const n = Number.parseInt(String(v).trim(), 10);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function isStrictIntegerString(s) {
+            // Only digits, no signs, no spaces, no decimals
+            return /^[0-9]+$/.test(s);
+        }
+
+        function setAngleInput(v) {
+            const el = document.getElementById("angleInput");
+            el.value = String(v);
+            currentAngle = v;
+        }
+
+        function getAngleFromInput() {
+            const el = document.getElementById("angleInput");
+            const raw = String(el.value ?? "").trim();
+            if (!isStrictIntegerString(raw)) {
+                return { ok: false, error: "Angle must be digits only (0..270)." };
+            }
+            const n = toInt(raw, null);
+            if (n === null) return { ok: false, error: "Angle must be an integer." };
+            if (n < 0 || n > 270) return { ok: false, error: "Angle out of range (0..270)." };
+            return { ok: true, value: n };
+        }
+
         /* -------------------- Render -------------------- */
         function renderWidgets() {
             const panel = document.getElementById("robot-panel");
             panel.querySelectorAll(".widget").forEach(w => w.remove());
 
             locations.forEach(loc => {
-                const pos = widgetPositions[loc.key] || { x: 20, y: 20 };
+                const pos = widgetPositions[loc.key] || { x: 50, y: 50 };
 
                 const w = document.createElement("div");
                 w.className = "widget" + (selectedLocation === loc.key ? " selected" : "");
-                w.style.left = `${pos.x}px`;
-                w.style.top = `${pos.y}px`;
+                w.style.left = `${pos.x}%`;
+                w.style.top = `${pos.y}%`;
 
                 const label = document.createElement("div");
                 label.className = "label";
@@ -366,6 +518,11 @@
                 selectBtn.addEventListener("click", () => {
                     selectedLocation = loc.key;
                     syncSelectedSidebar();
+                    // Load per-location last angle if present
+                    if (lastAngles[selectedLocation] !== undefined) {
+                        const v = clampInt(toInt(lastAngles[selectedLocation], 0), 0, 270);
+                        setAngleInput(v);
+                    }
                     renderWidgets();
                 });
 
@@ -401,44 +558,27 @@
                 pos.appendChild(b);
             });
 
-            document.getElementById("angleInput").value = String(currentAngle);
+            renderHotkeyButtons();
         }
 
-        /* -------------------- Commands (UI stays dumb; backend enforces) -------------------- */
-        async function sendCommand(angleValue) {
-            if (!selectedLocation) {
-                alert("Select a location first.");
-                return;
-            }
-            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angleValue });
-            if (!resp.ok) {
-                alert(resp.data.error || "Command failed");
-            }
-        }
-
-        async function sendAngleFromInput() {
-            if (!selectedLocation) {
-                alert("Select a location first.");
-                return;
-            }
-
-            const raw = String(document.getElementById("angleInput").value || "").trim();
-            if (!raw) {
-                alert("Enter an angle (0..270).");
-                return;
-            }
-
-            // Keep UI dumb: backend is source of truth. We only parse.
-            const angle = parseInt(raw, 10);
-            if (!Number.isFinite(angle)) {
-                alert("Angle must be an integer.");
-                return;
-            }
-
-            currentAngle = angle;
-            document.getElementById("angleInput").value = String(currentAngle);
-
-            await sendCommand(currentAngle);
+        function renderHotkeyButtons() {
+            const host = document.getElementById("hotkeyButtons");
+            host.innerHTML = "";
+            hotkeys.forEach((v, idx) => {
+                const b = document.createElement("button");
+                b.className = "tiny";
+                b.textContent = `${v}°`;
+                b.title = `Hotkey ${idx + 1}: send ${v}°`;
+                b.addEventListener("click", async () => {
+                    if (!selectedLocation) {
+                        alert("Select a location first.");
+                        return;
+                    }
+                    setAngleInput(v);
+                    await sendAngle(v);
+                });
+                host.appendChild(b);
+            });
         }
 
         async function adjustAngle(delta) {
@@ -446,9 +586,24 @@
                 alert("Select a location first.");
                 return;
             }
-            currentAngle = currentAngle + delta;
-            document.getElementById("angleInput").value = String(currentAngle);
-            await sendCommand(currentAngle);
+            const next = clampInt(currentAngle + delta, 0, 270);
+            setAngleInput(next);
+            await sendAngle(next);
+        }
+
+        async function sendAngle(angle) {
+            if (!selectedLocation) {
+                alert("Select a location first.");
+                return;
+            }
+            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angle });
+            if (!resp.ok) {
+                alert(resp.data.error || "Command failed");
+                return;
+            }
+            // Save per-location last commanded angle
+            lastAngles[selectedLocation] = angle;
+            saveLastAngles();
         }
 
         function syncSelectedSidebar() {
@@ -502,6 +657,68 @@
             syncSelectedSidebar();
         }
 
+        /* -------------------- Notes -------------------- */
+        let notesSaveTimer = null;
+        let notesLastSent = null;
+
+        function setNotesStatus(text, cls = "muted") {
+            const el = document.getElementById("notesStatus");
+            el.className = cls;
+            el.textContent = text;
+        }
+
+        async function loadNotes() {
+            const resp = await api("/api/channel_notes");
+            if (!resp.ok) {
+                setNotesStatus("Notes: failed to load", "danger");
+                return;
+            }
+            const notes = (resp.data && typeof resp.data.notes === "string") ? resp.data.notes : "";
+            const area = document.getElementById("notesArea");
+            area.value = notes;
+            notesLastSent = notes;
+            setNotesStatus("Notes: loaded", "muted");
+        }
+
+        function scheduleNotesSave() {
+            if (notesSaveTimer) clearTimeout(notesSaveTimer);
+            notesSaveTimer = setTimeout(async () => {
+                const area = document.getElementById("notesArea");
+                const notes = String(area.value ?? "");
+                if (notes === notesLastSent) return;
+
+                setNotesStatus("Notes: saving…", "muted");
+                const resp = await api("/api/channel_notes", "POST", { notes });
+                if (!resp.ok) {
+                    setNotesStatus(`Notes: save failed (${resp.data?.error || resp.status})`, "danger");
+                    return;
+                }
+                notesLastSent = notes;
+                setNotesStatus("Notes: saved", "ok");
+            }, 500);
+        }
+
+        /* -------------------- Hotkey config UI -------------------- */
+        function syncHotkeyInputs() {
+            for (let i = 0; i < 6; i++) {
+                const el = document.getElementById(`hk${i}`);
+                el.value = String(hotkeys[i]);
+            }
+        }
+
+        function attachHotkeyInputHandlers() {
+            for (let i = 0; i < 6; i++) {
+                const el = document.getElementById(`hk${i}`);
+                el.addEventListener("change", () => {
+                    const v = clampInt(toInt(el.value, hotkeys[i]), 0, 270);
+                    hotkeys[i] = v;
+                    el.value = String(v);
+                    saveHotkeys();
+                    renderHotkeyButtons();
+                });
+            }
+        }
+
         /* -------------------- Actions -------------------- */
         async function refresh() {
             const resp = await api("/api/config");
@@ -514,6 +731,7 @@
             availableChannels = resp.data.available_channels;
             setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
 
+            // Hardware status
             const hw = document.getElementById("hw-status");
             if (resp.data.hardware_available) {
                 hw.innerHTML = `Hardware: <b>available</b>`;
@@ -549,20 +767,53 @@
             syncSelectedSidebar();
         });
 
+        // Limits editing hooks
         document.getElementById("minDeg").addEventListener("change", pushLimits);
         document.getElementById("maxDeg").addEventListener("change", pushLimits);
         document.getElementById("invertChk").addEventListener("change", pushLimits);
 
-        document.getElementById("btnSend").addEventListener("click", sendAngleFromInput);
+        // Angle input: auto-highlight/select on focus/click
+        const angleInput = document.getElementById("angleInput");
+        angleInput.addEventListener("focus", () => angleInput.select());
+        angleInput.addEventListener("click", () => angleInput.select());
 
-        document.getElementById("angleInput").addEventListener("keydown", (e) => {
+        // Enter key sends
+        angleInput.addEventListener("keydown", async (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                sendAngleFromInput();
+                document.getElementById("sendBtn").click();
             }
         });
 
+        // Send button
+        document.getElementById("sendBtn").addEventListener("click", async () => {
+            if (!selectedLocation) {
+                alert("Select a location first.");
+                return;
+            }
+            const parsed = getAngleFromInput();
+            if (!parsed.ok) {
+                alert(parsed.error);
+                return;
+            }
+            const angle = parsed.value;
+            setAngleInput(angle);
+            await sendAngle(angle);
+        });
+
+        // Notes field: debounce save
+        const notesArea = document.getElementById("notesArea");
+        notesArea.addEventListener("input", scheduleNotesSave);
+
+        // Init
+        loadLastAngles();
+        loadHotkeys();
+        syncHotkeyInputs();
+        attachHotkeyInputHandlers();
+        setAngleInput(0);
+
         refresh();
+        loadNotes();
     </script>
 </body>
 
