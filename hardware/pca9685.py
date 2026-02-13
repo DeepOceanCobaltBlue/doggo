@@ -114,12 +114,14 @@ class PCA9685:
         if eff_limits.invert:
             angle_deg = deg_max - (angle_deg - deg_min)
 
-        # Map relative to [deg_min..deg_max] for full resolution
-        span = max(1, (deg_max - deg_min))
-        t = (angle_deg - deg_min) / float(span)
+        t = angle_deg / 270.0  
+        t = max(0.0, min(1.0, t))
 
-        pulse_us = int(round(self.pulse_range.min_us + t * (self.pulse_range.max_us - self.pulse_range.min_us)))
+        pulse_us = int(round(
+            self.pulse_range.min_us + t * (self.pulse_range.max_us - self.pulse_range.min_us)
+        ))
         self.set_channel_pulse_us(channel, pulse_us)
+
 
     def set_channel_pulse_us(self, channel: int, pulse_us: int) -> None:
         channel = _clamp_int(int(channel), 0, 15)
