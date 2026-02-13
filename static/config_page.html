@@ -14,6 +14,8 @@
             --selected: #263a5f;
             --danger: #ff5d5d;
             --ok: #4cff91;
+            --card: #0f1220;
+            --border: rgba(255, 255, 255, .14);
         }
 
         * {
@@ -30,7 +32,7 @@
         .wrap {
             display: grid;
             grid-template-columns: 1fr 360px;
-            grid-template-rows: 1fr 140px;
+            grid-template-rows: 1fr 180px;
             height: 100vh;
             gap: 12px;
             padding: 12px;
@@ -39,10 +41,9 @@
         .main {
             background: var(--panel);
             border-radius: 16px;
-            position: relative;
-            overflow: auto;
-            min-width: 980px;
-            min-height: 680px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
         .sidebar {
@@ -51,7 +52,7 @@
             padding: 14px;
             display: flex;
             flex-direction: column;
-            gap: 14px;
+            gap: 12px;
             overflow: auto;
         }
 
@@ -59,19 +60,25 @@
             grid-column: 1 / span 2;
             background: var(--panel);
             border-radius: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 10px;
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
             overflow: hidden;
         }
 
-        .barRow {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            flex-wrap: wrap;
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px;
+            height: 100%;
+        }
+
+        .title {
+            font-weight: 900;
+            font-size: 18px;
+            margin: 0 0 4px 0;
         }
 
         .muted {
@@ -79,11 +86,10 @@
             font-size: 13px;
         }
 
-        .row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
+        .divider {
+            height: 1px;
+            background: rgba(255, 255, 255, .10);
+            margin: 8px 0;
         }
 
         button {
@@ -93,11 +99,17 @@
             border-radius: 12px;
             padding: 10px 12px;
             cursor: pointer;
+            user-select: none;
         }
 
         button.primary {
             border-color: var(--accent);
             color: var(--accent);
+        }
+
+        button.selected {
+            outline: 2px solid var(--accent);
+            background: rgba(38, 58, 95, .55);
         }
 
         button:disabled {
@@ -113,62 +125,9 @@
             color: var(--ok);
         }
 
-        .robot-img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            opacity: 0.95;
-            filter: saturate(0.9) contrast(1.05);
-        }
-
-        .widget {
-            position: absolute;
-            min-width: 220px;
-            background: rgba(15, 18, 32, .84);
-            border: 1px solid rgba(255, 255, 255, .14);
-            border-radius: 14px;
-            padding: 10px;
-            transform: none;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
-        }
-
-        .widget.selected {
-            outline: 2px solid var(--accent);
-            background: rgba(38, 58, 95, .85);
-        }
-
-        .widget .label {
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        select {
-            width: 100%;
-            padding: 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, .18);
-            background: #0f1220;
-            color: var(--text);
-        }
-
-        .widget .btnrow {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .widget .btnrow button {
-            flex: 1;
-        }
-
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
         input[type="number"],
-        input[type="text"] {
+        input[type="text"],
+        select {
             width: 100%;
             padding: 10px;
             border-radius: 12px;
@@ -183,7 +142,7 @@
 
         textarea {
             width: 100%;
-            min-height: 120px;
+            min-height: 130px;
             resize: vertical;
             padding: 10px;
             border-radius: 12px;
@@ -195,19 +154,132 @@
             line-height: 1.35;
         }
 
-        .divider {
-            height: 1px;
-            background: rgba(255, 255, 255, .10);
-            margin: 4px 0;
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        /* Main dynamic limits placeholder */
+        .mainHeader {
+            padding: 12px 14px;
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, .10);
+        }
+
+        .mainBody {
+            padding: 14px;
+            overflow: auto;
+            flex: 1;
+        }
+
+        .placeholder {
+            border: 1px dashed rgba(255, 255, 255, .22);
+            border-radius: 14px;
+            padding: 14px;
+            min-height: 220px;
+            background: rgba(15, 18, 32, .55);
+        }
+
+        /* Bottom bar left: servo selector grid */
+        .selectorWrap {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%;
+        }
+
+        .selectorTopLabels {
+            display: grid;
+            grid-template-columns: 1fr 1fr 160px 1fr 1fr;
+            gap: 10px;
+            align-items: center;
+            justify-items: center;
+            padding: 0 2px;
+        }
+
+        .selectorTopLabels .lr {
+            font-weight: 800;
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: .6px;
+            text-transform: uppercase;
+        }
+
+        .selectorGridArea {
+            display: grid;
+            grid-template-columns: 64px 1fr 1fr 160px 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .rowLabel {
+            font-weight: 900;
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: .6px;
+            text-transform: uppercase;
+            text-align: right;
+            padding-right: 4px;
+        }
+
+        .servoBtn {
+            width: 100%;
+            font-weight: 800;
+            text-transform: lowercase;
+        }
+
+        .channelBlock {
+            grid-column: 4;
+            grid-row: 1 / span 2;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-self: stretch;
+            justify-content: center;
+        }
+
+        .channelBlock label {
+            font-size: 12px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            font-weight: 800;
+            text-align: center;
+        }
+
+        /* Bottom bar right: angle control */
+        .angleWrap {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: 100%;
+        }
+
+        .angleRow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
         .steps {
             display: flex;
             gap: 8px;
-        }
-
-        .steps button {
-            min-width: 64px;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
         .angleBox {
@@ -224,7 +296,7 @@
             width: 110px;
             text-align: center;
             font-size: 18px;
-            font-weight: 800;
+            font-weight: 900;
             padding: 10px 10px;
         }
 
@@ -235,91 +307,116 @@
             flex-wrap: wrap;
         }
 
-        .hotkeys button {
-            min-width: 70px;
-        }
-
         .tiny {
             font-size: 12px;
             padding: 8px 10px;
             border-radius: 10px;
+            min-width: 70px;
+        }
+
+        /* Sidebar split */
+        .sidebarSection {
+            border: 1px solid rgba(255, 255, 255, .12);
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(15, 18, 32, .40);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sectionTitle {
+            font-weight: 900;
+            font-size: 14px;
+            margin-bottom: 2px;
         }
     </style>
 </head>
 
 <body>
     <div class="wrap">
-        <div class="main" id="robot-panel">
-            <img class="robot-img"
-                src="https://images.unsplash.com/photo-1529429611273-1f7b0fbe0a2b?auto=format&fit=crop&w=1400&q=80"
-                alt="Robot" />
+
+        <div class="main">
+            <div class="mainHeader">
+                <div>
+                    <div class="title">Dynamic Limits</div>
+                    <div class="muted">Placeholder area for collision-aware limits (front/rear interference) editor.
+                    </div>
+                </div>
+                <div id="hw-status" class="muted"></div>
+            </div>
+
+            <div class="mainBody">
+                <div class="placeholder">
+                    <div style="font-weight:900;margin-bottom:6px;">Dynamic limits table (coming next)</div>
+                    <div class="muted">
+                        This area will define relative constraints between front/rear legs on the same side to prevent
+                        collisions.
+                        We’ll build the editor and then enforce it in the command path.
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="sidebar">
-            <div>
-                <div class="row">
-                    <div>
-                        <div style="font-size:18px;font-weight:800;">Doggo Config</div>
-                        <div class="muted">Assign channels + set per-location limits.</div>
-                    </div>
+            <div class="row" style="align-items:flex-start;">
+                <div>
+                    <div class="title" style="margin:0;">Doggo Config</div>
+                    <div class="muted">Channel mapping + travel limits + notes/hotkeys.</div>
                 </div>
-                <div id="hw-status" class="muted" style="margin-top:8px;"></div>
             </div>
-
-            <div class="divider"></div>
 
             <div class="row">
                 <button id="saveBtn" class="primary" disabled>Save</button>
                 <button id="resetBtn" disabled>Reset</button>
             </div>
 
-            <div class="divider"></div>
+            <div class="sidebarSection">
+                <div class="sectionTitle">Travel limits</div>
+                <div class="muted">Selected: <span id="selectedLabel">None</span></div>
 
-            <div>
-                <div style="font-weight:800; margin-bottom:8px;">Selected location</div>
-                <div id="selectedLabel" class="muted">None</div>
-            </div>
+                <div class="field">
+                    <label class="muted">Min angle (deg)</label>
+                    <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
+                </div>
 
-            <div class="field">
-                <label class="muted">Min angle (deg)</label>
-                <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
-            </div>
+                <div class="field">
+                    <label class="muted">Max angle (deg)</label>
+                    <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
+                </div>
 
-            <div class="field">
-                <label class="muted">Max angle (deg)</label>
-                <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
-            </div>
-
-            <div class="row">
-                <label class="muted" for="invertChk">Invert</label>
-                <input id="invertChk" type="checkbox" disabled />
-            </div>
-
-            <div class="divider"></div>
-
-            <div>
-                <div style="font-weight:800; margin-bottom:8px;">Hotkeys (programmable)</div>
-                <div class="muted" style="margin-bottom:8px;">Edit values here; buttons are on the bottom bar.</div>
-                <div class="field" style="gap:10px;">
-                    <input id="hk0" type="number" min="0" max="270" step="1" />
-                    <input id="hk1" type="number" min="0" max="270" step="1" />
-                    <input id="hk2" type="number" min="0" max="270" step="1" />
-                    <input id="hk3" type="number" min="0" max="270" step="1" />
-                    <input id="hk4" type="number" min="0" max="270" step="1" />
-                    <input id="hk5" type="number" min="0" max="270" step="1" />
+                <div class="row">
+                    <label class="muted" for="invertChk">Invert</label>
+                    <input id="invertChk" type="checkbox" disabled />
                 </div>
             </div>
 
-            <div class="divider"></div>
+            <div class="sidebarSection">
+                <div class="sectionTitle">Universal settings</div>
 
-            <div>
-                <div style="font-weight:800; margin-bottom:8px;">Notes</div>
-                <textarea id="notesArea"
-                    placeholder="Saved to config/channel_notes.json (not part of config_file.json)."></textarea>
-                <div id="notesStatus" class="muted" style="margin-top:6px;">—</div>
+                <div>
+                    <div style="font-weight:900; margin-bottom:6px;">Hotkeys (programmable)</div>
+                    <div class="muted" style="margin-bottom:8px;">Edit values here; buttons are on the bottom-right.
+                    </div>
+                    <div class="field" style="gap:10px;">
+                        <input id="hk0" type="number" min="0" max="270" step="1" />
+                        <input id="hk1" type="number" min="0" max="270" step="1" />
+                        <input id="hk2" type="number" min="0" max="270" step="1" />
+                        <input id="hk3" type="number" min="0" max="270" step="1" />
+                        <input id="hk4" type="number" min="0" max="270" step="1" />
+                        <input id="hk5" type="number" min="0" max="270" step="1" />
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div>
+                    <div style="font-weight:900; margin-bottom:6px;">Notes</div>
+                    <textarea id="notesArea"
+                        placeholder="Saved to config/channel_notes.json (not part of config_file.json)."></textarea>
+                    <div id="notesStatus" class="muted" style="margin-top:6px;">—</div>
+                </div>
             </div>
-
-            <div class="divider"></div>
 
             <div class="muted">
                 Limits apply when you send commands in this app and will be saved to
@@ -328,27 +425,78 @@
         </div>
 
         <div class="bar">
-            <div class="barRow">
-                <div class="steps" id="negSteps"></div>
 
-                <div class="angleBox">
-                    <input id="angleInput" type="text" inputmode="numeric" value="0" />
-                    <button id="sendBtn" class="primary">Send</button>
+            <!-- Left half: servo selection + channel dropdown in middle gap -->
+            <div class="card selectorWrap">
+                <div class="row">
+                    <div style="font-weight:900;">Servo select</div>
+                    <div class="muted" id="selectedShort">None</div>
                 </div>
 
-                <div class="steps" id="posSteps"></div>
+                <div class="selectorTopLabels">
+                    <div class="lr" style="grid-column:1 / span 2;">Left</div>
+                    <div></div>
+                    <div class="lr" style="grid-column:4 / span 2;">Right</div>
+                </div>
+
+                <div class="selectorGridArea">
+                    <!-- Front row label -->
+                    <div class="rowLabel" style="grid-row:1;">Front</div>
+
+                    <button id="btn_front_left_knee" class="servoBtn" style="grid-row:1;grid-column:2;">knee</button>
+                    <button id="btn_front_left_hip" class="servoBtn" style="grid-row:1;grid-column:3;">hip</button>
+
+                    <div class="channelBlock">
+                        <label>channel</label>
+                        <select id="channelSelect"></select>
+                    </div>
+
+                    <button id="btn_front_right_hip" class="servoBtn" style="grid-row:1;grid-column:5;">hip</button>
+                    <button id="btn_front_right_knee" class="servoBtn" style="grid-row:1;grid-column:6;">knee</button>
+
+                    <!-- Rear row label -->
+                    <div class="rowLabel" style="grid-row:2;">Rear</div>
+
+                    <button id="btn_back_left_knee" class="servoBtn" style="grid-row:2;grid-column:2;">knee</button>
+                    <button id="btn_back_left_hip" class="servoBtn" style="grid-row:2;grid-column:3;">hip</button>
+
+                    <button id="btn_back_right_hip" class="servoBtn" style="grid-row:2;grid-column:5;">hip</button>
+                    <button id="btn_back_right_knee" class="servoBtn" style="grid-row:2;grid-column:6;">knee</button>
+                </div>
+
+                <div class="muted">
+                    Select a servo, then assign its PCA channel using the dropdown.
+                </div>
             </div>
 
-            <div class="barRow">
+            <!-- Right half: angle control -->
+            <div class="card angleWrap">
+                <div class="row">
+                    <div style="font-weight:900;">Angle control</div>
+                    <div class="muted">0–270</div>
+                </div>
+
+                <div class="angleRow">
+                    <div class="steps" id="negSteps"></div>
+
+                    <div class="angleBox">
+                        <input id="angleInput" type="text" inputmode="numeric" value="0" />
+                        <button id="sendBtn" class="primary">Send</button>
+                    </div>
+
+                    <div class="steps" id="posSteps"></div>
+                </div>
+
                 <div class="hotkeys" id="hotkeyButtons"></div>
             </div>
+
         </div>
     </div>
 
     <script>
         /* -------------------- State -------------------- */
         let locations = [];
-        let draft = null;                 // full draft config object
+        let draft = null;
         let availableChannels = [];
         let selectedLocation = null;
 
@@ -360,26 +508,21 @@
         const HOTKEYS_KEY = "doggo:hotkeys:v1";
         let hotkeys = [0, 70, 135, 200, 250, 270];
 
-        // Current working angle in the box
         let currentAngle = 0;
-
         const steps = [1, 5, 10];
 
-        /* Widget layout (percent-based, tweak freely) */
-        const widgetPositions = {
-            front_left_hip: { x: 20, y: 70 },
-            front_left_knee: { x: 20, y: 200 },
+        // Button mapping (per your specified order)
+        const BUTTON_TO_LOCATION = {
+            btn_front_left_knee: "front_left_knee",
+            btn_front_left_hip: "front_left_hip",
+            btn_front_right_hip: "front_right_hip",
+            btn_front_right_knee: "front_right_knee",
 
-            front_right_hip: { x: 740, y: 70 },
-            front_right_knee: { x: 740, y: 200 },
-
-            back_left_hip: { x: 140, y: 360 },
-            back_left_knee: { x: 140, y: 490 },
-
-            back_right_hip: { x: 620, y: 360 },
-            back_right_knee: { x: 620, y: 490 },
+            btn_back_left_knee: "back_left_knee",
+            btn_back_left_hip: "back_left_hip",
+            btn_back_right_hip: "back_right_hip",
+            btn_back_right_knee: "back_right_knee",
         };
-
 
         /* -------------------- API helpers -------------------- */
         async function api(url, method = "GET", body = null) {
@@ -405,9 +548,7 @@
         }
 
         function saveLastAngles() {
-            try {
-                localStorage.setItem(LAST_ANGLES_KEY, JSON.stringify(lastAngles));
-            } catch { }
+            try { localStorage.setItem(LAST_ANGLES_KEY, JSON.stringify(lastAngles)); } catch { }
         }
 
         function loadHotkeys() {
@@ -421,12 +562,10 @@
         }
 
         function saveHotkeys() {
-            try {
-                localStorage.setItem(HOTKEYS_KEY, JSON.stringify(hotkeys));
-            } catch { }
+            try { localStorage.setItem(HOTKEYS_KEY, JSON.stringify(hotkeys)); } catch { }
         }
 
-        /* -------------------- Small utils -------------------- */
+        /* -------------------- Utils -------------------- */
         function clampInt(v, lo, hi) {
             return Math.max(lo, Math.min(hi, v));
         }
@@ -437,7 +576,6 @@
         }
 
         function isStrictIntegerString(s) {
-            // Only digits, no signs, no spaces, no decimals
             return /^[0-9]+$/.test(s);
         }
 
@@ -450,100 +588,159 @@
         function getAngleFromInput() {
             const el = document.getElementById("angleInput");
             const raw = String(el.value ?? "").trim();
-            if (!isStrictIntegerString(raw)) {
-                return { ok: false, error: "Angle must be digits only (0..270)." };
-            }
+            if (!isStrictIntegerString(raw)) return { ok: false, error: "Angle must be digits only (0..270)." };
             const n = toInt(raw, null);
             if (n === null) return { ok: false, error: "Angle must be an integer." };
             if (n < 0 || n > 270) return { ok: false, error: "Angle out of range (0..270)." };
             return { ok: true, value: n };
         }
 
-        /* -------------------- Render -------------------- */
-        function renderWidgets() {
-            const panel = document.getElementById("robot-panel");
-            panel.querySelectorAll(".widget").forEach(w => w.remove());
-
-            locations.forEach(loc => {
-                const pos = widgetPositions[loc.key] || { x: 50, y: 50 };
-
-                const w = document.createElement("div");
-                w.className = "widget" + (selectedLocation === loc.key ? " selected" : "");
-                w.style.left = `${pos.x}px`;
-                w.style.top = `${pos.y}px`;
-
-                const label = document.createElement("div");
-                label.className = "label";
-                label.textContent = loc.label;
-                w.appendChild(label);
-
-                const sel = document.createElement("select");
-                sel.dataset.loc = loc.key;
-
-                const optNone = document.createElement("option");
-                optNone.value = "";
-                optNone.textContent = "— Unassigned —";
-                sel.appendChild(optNone);
-
-                const current = draft.locations[loc.key].channel;
-                const pool = [...availableChannels];
-                if (current !== null && current !== undefined && !pool.includes(current)) pool.push(current);
-                pool.sort((a, b) => a - b);
-
-                pool.forEach(ch => {
-                    const o = document.createElement("option");
-                    o.value = String(ch);
-                    o.textContent = `Channel ${ch}`;
-                    sel.appendChild(o);
-                });
-
-                sel.value = (current === null || current === undefined) ? "" : String(current);
-
-                sel.addEventListener("change", async (e) => {
-                    const v = e.target.value;
-                    const ch = v === "" ? null : parseInt(v, 10);
-                    const resp = await api("/api/channel", "POST", { location: loc.key, channel: ch });
-                    if (!resp.ok) {
-                        alert(resp.data.error || "Failed to set channel");
-                    } else {
-                        draft = resp.data.draft;
-                        availableChannels = resp.data.available_channels;
-                        setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-                        renderWidgets();
-                    }
-                });
-
-                w.appendChild(sel);
-
-                const btnRow = document.createElement("div");
-                btnRow.className = "btnrow";
-
-                const selectBtn = document.createElement("button");
-                selectBtn.textContent = "Select";
-                selectBtn.className = "primary";
-                selectBtn.addEventListener("click", () => {
-                    selectedLocation = loc.key;
-                    syncSelectedSidebar();
-                    // Load per-location last angle if present
-                    if (lastAngles[selectedLocation] !== undefined) {
-                        const v = clampInt(toInt(lastAngles[selectedLocation], 0), 0, 270);
-                        setAngleInput(v);
-                    }
-                    renderWidgets();
-                });
-
-                btnRow.appendChild(selectBtn);
-                w.appendChild(btnRow);
-
-                panel.appendChild(w);
-            });
+        function locLabel(locKey) {
+            const loc = locations.find(l => l.key === locKey);
+            return loc ? loc.label : locKey;
         }
 
+        /* -------------------- Sidebar + selection -------------------- */
         function setSaveResetEnabled(saveEnabled, resetEnabled) {
             document.getElementById("saveBtn").disabled = !saveEnabled;
             document.getElementById("resetBtn").disabled = !resetEnabled;
         }
 
+        function syncSelectedSidebar() {
+            const labelEl = document.getElementById("selectedLabel");
+            const shortEl = document.getElementById("selectedShort");
+            const minEl = document.getElementById("minDeg");
+            const maxEl = document.getElementById("maxDeg");
+            const invEl = document.getElementById("invertChk");
+
+            if (!selectedLocation) {
+                labelEl.textContent = "None";
+                shortEl.textContent = "None";
+                minEl.value = "";
+                maxEl.value = "";
+                invEl.checked = false;
+                minEl.disabled = true;
+                maxEl.disabled = true;
+                invEl.disabled = true;
+                return;
+            }
+
+            labelEl.textContent = locLabel(selectedLocation);
+            shortEl.textContent = locLabel(selectedLocation);
+
+            const lim = draft.locations[selectedLocation].limits;
+            minEl.value = String(lim.deg_min);
+            maxEl.value = String(lim.deg_max);
+            invEl.checked = !!lim.invert;
+
+            minEl.disabled = false;
+            maxEl.disabled = false;
+            invEl.disabled = false;
+        }
+
+        function renderServoButtons() {
+            for (const [btnId, locKey] of Object.entries(BUTTON_TO_LOCATION)) {
+                const btn = document.getElementById(btnId);
+                if (!btn) continue;
+                btn.classList.toggle("selected", selectedLocation === locKey);
+            }
+        }
+
+        function buildChannelSelectOptions() {
+            const sel = document.getElementById("channelSelect");
+            sel.innerHTML = "";
+
+            // Unassigned option
+            const optNone = document.createElement("option");
+            optNone.value = "";
+            optNone.textContent = "— Unassigned —";
+            sel.appendChild(optNone);
+
+            if (!selectedLocation || !draft) {
+                sel.value = "";
+                sel.disabled = true;
+                return;
+            }
+
+            sel.disabled = false;
+
+            const current = draft.locations[selectedLocation].channel; // may be null
+            const pool = [...availableChannels];
+
+            if (current !== null && current !== undefined && !pool.includes(current)) pool.push(current);
+            pool.sort((a, b) => a - b);
+
+            pool.forEach(ch => {
+                const o = document.createElement("option");
+                o.value = String(ch);
+                o.textContent = `Channel ${ch}`;
+                sel.appendChild(o);
+            });
+
+            sel.value = (current === null || current === undefined) ? "" : String(current);
+        }
+
+        function applySelection(locKey) {
+            selectedLocation = locKey;
+            syncSelectedSidebar();
+            renderServoButtons();
+            buildChannelSelectOptions();
+
+            // per-location last commanded angle
+            if (lastAngles[selectedLocation] !== undefined) {
+                const v = clampInt(toInt(lastAngles[selectedLocation], 0), 0, 270);
+                setAngleInput(v);
+            }
+        }
+
+        /* -------------------- Limits API -------------------- */
+        async function pushLimits() {
+            if (!selectedLocation) return;
+
+            const minEl = document.getElementById("minDeg");
+            const maxEl = document.getElementById("maxDeg");
+            const invEl = document.getElementById("invertChk");
+
+            const deg_min = parseInt(minEl.value, 10);
+            const deg_max = parseInt(maxEl.value, 10);
+            const invert = !!invEl.checked;
+
+            const resp = await api("/api/limits", "POST", { location: selectedLocation, deg_min, deg_max, invert });
+            if (!resp.ok) {
+                alert(resp.data.error || "Failed to set limits");
+                return;
+            }
+            draft = resp.data.draft;
+            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+            syncSelectedSidebar();
+        }
+
+        /* -------------------- Command path -------------------- */
+        async function sendAngle(angle) {
+            if (!selectedLocation) {
+                alert("Select a servo first.");
+                return;
+            }
+            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angle });
+            if (!resp.ok) {
+                alert(resp.data.error || "Command failed");
+                return;
+            }
+            lastAngles[selectedLocation] = angle;
+            saveLastAngles();
+        }
+
+        async function adjustAngle(delta) {
+            if (!selectedLocation) {
+                alert("Select a servo first.");
+                return;
+            }
+            const next = clampInt(currentAngle + delta, 0, 270);
+            setAngleInput(next);
+            await sendAngle(next);
+        }
+
+        /* -------------------- Angle control rendering -------------------- */
         function renderControlBar() {
             const neg = document.getElementById("negSteps");
             const pos = document.getElementById("posSteps");
@@ -577,7 +774,7 @@
                 b.title = `Hotkey ${idx + 1}: send ${v}°`;
                 b.addEventListener("click", async () => {
                     if (!selectedLocation) {
-                        alert("Select a location first.");
+                        alert("Select a servo first.");
                         return;
                     }
                     setAngleInput(v);
@@ -587,80 +784,25 @@
             });
         }
 
-        async function adjustAngle(delta) {
-            if (!selectedLocation) {
-                alert("Select a location first.");
-                return;
+        /* -------------------- Hotkeys programmable inputs -------------------- */
+        function syncHotkeyInputs() {
+            for (let i = 0; i < 6; i++) {
+                const el = document.getElementById(`hk${i}`);
+                el.value = String(hotkeys[i]);
             }
-            const next = clampInt(currentAngle + delta, 0, 270);
-            setAngleInput(next);
-            await sendAngle(next);
         }
 
-        async function sendAngle(angle) {
-            if (!selectedLocation) {
-                alert("Select a location first.");
-                return;
+        function attachHotkeyInputHandlers() {
+            for (let i = 0; i < 6; i++) {
+                const el = document.getElementById(`hk${i}`);
+                el.addEventListener("change", () => {
+                    const v = clampInt(toInt(el.value, hotkeys[i]), 0, 270);
+                    hotkeys[i] = v;
+                    el.value = String(v);
+                    saveHotkeys();
+                    renderHotkeyButtons();
+                });
             }
-            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angle });
-            if (!resp.ok) {
-                alert(resp.data.error || "Command failed");
-                return;
-            }
-            // Save per-location last commanded angle
-            lastAngles[selectedLocation] = angle;
-            saveLastAngles();
-        }
-
-        function syncSelectedSidebar() {
-            const labelEl = document.getElementById("selectedLabel");
-            const minEl = document.getElementById("minDeg");
-            const maxEl = document.getElementById("maxDeg");
-            const invEl = document.getElementById("invertChk");
-
-            if (!selectedLocation) {
-                labelEl.textContent = "None";
-                minEl.value = "";
-                maxEl.value = "";
-                invEl.checked = false;
-                minEl.disabled = true;
-                maxEl.disabled = true;
-                invEl.disabled = true;
-                return;
-            }
-
-            const loc = locations.find(l => l.key === selectedLocation);
-            labelEl.textContent = loc ? loc.label : selectedLocation;
-
-            const lim = draft.locations[selectedLocation].limits;
-            minEl.value = String(lim.deg_min);
-            maxEl.value = String(lim.deg_max);
-            invEl.checked = !!lim.invert;
-
-            minEl.disabled = false;
-            maxEl.disabled = false;
-            invEl.disabled = false;
-        }
-
-        async function pushLimits() {
-            if (!selectedLocation) return;
-
-            const minEl = document.getElementById("minDeg");
-            const maxEl = document.getElementById("maxDeg");
-            const invEl = document.getElementById("invertChk");
-
-            const deg_min = parseInt(minEl.value, 10);
-            const deg_max = parseInt(maxEl.value, 10);
-            const invert = !!invEl.checked;
-
-            const resp = await api("/api/limits", "POST", { location: selectedLocation, deg_min, deg_max, invert });
-            if (!resp.ok) {
-                alert(resp.data.error || "Failed to set limits");
-                return;
-            }
-            draft = resp.data.draft;
-            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-            syncSelectedSidebar();
         }
 
         /* -------------------- Notes -------------------- */
@@ -704,40 +846,19 @@
             }, 500);
         }
 
-        /* -------------------- Hotkey config UI -------------------- */
-        function syncHotkeyInputs() {
-            for (let i = 0; i < 6; i++) {
-                const el = document.getElementById(`hk${i}`);
-                el.value = String(hotkeys[i]);
-            }
-        }
-
-        function attachHotkeyInputHandlers() {
-            for (let i = 0; i < 6; i++) {
-                const el = document.getElementById(`hk${i}`);
-                el.addEventListener("change", () => {
-                    const v = clampInt(toInt(el.value, hotkeys[i]), 0, 270);
-                    hotkeys[i] = v;
-                    el.value = String(v);
-                    saveHotkeys();
-                    renderHotkeyButtons();
-                });
-            }
-        }
-
-        /* -------------------- Actions -------------------- */
+        /* -------------------- Init + refresh -------------------- */
         async function refresh() {
             const resp = await api("/api/config");
             if (!resp.ok) {
                 alert("Failed to load config");
                 return;
             }
+
             locations = resp.data.locations;
             draft = resp.data.draft;
             availableChannels = resp.data.available_channels;
             setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
 
-            // Hardware status
             const hw = document.getElementById("hw-status");
             if (resp.data.hardware_available) {
                 hw.innerHTML = `Hardware: <b>available</b>`;
@@ -746,11 +867,13 @@
                 hw.innerHTML = `Hardware: <span class="danger"><b>unavailable</b></span>${msg}`;
             }
 
-            renderWidgets();
             renderControlBar();
+            renderServoButtons();
+            buildChannelSelectOptions();
             syncSelectedSidebar();
         }
 
+        // Save / Reset
         document.getElementById("saveBtn").addEventListener("click", async () => {
             const resp = await api("/api/save", "POST", {});
             if (!resp.ok) {
@@ -769,8 +892,32 @@
             draft = resp.data.draft;
             availableChannels = resp.data.available_channels;
             setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
-            renderWidgets();
+            buildChannelSelectOptions();
             syncSelectedSidebar();
+        });
+
+        // Servo buttons
+        for (const [btnId, locKey] of Object.entries(BUTTON_TO_LOCATION)) {
+            const btn = document.getElementById(btnId);
+            btn.addEventListener("click", () => applySelection(locKey));
+        }
+
+        // Channel dropdown (selected servo only)
+        document.getElementById("channelSelect").addEventListener("change", async (e) => {
+            if (!selectedLocation) return;
+            const v = e.target.value;
+            const ch = v === "" ? null : parseInt(v, 10);
+
+            const resp = await api("/api/channel", "POST", { location: selectedLocation, channel: ch });
+            if (!resp.ok) {
+                alert(resp.data.error || "Failed to set channel");
+                buildChannelSelectOptions(); // revert UI
+                return;
+            }
+            draft = resp.data.draft;
+            availableChannels = resp.data.available_channels;
+            setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
+            buildChannelSelectOptions();
         });
 
         // Limits editing hooks
@@ -778,12 +925,10 @@
         document.getElementById("maxDeg").addEventListener("change", pushLimits);
         document.getElementById("invertChk").addEventListener("change", pushLimits);
 
-        // Angle input: auto-highlight/select on focus/click
+        // Angle input UX: auto-select on focus/click
         const angleInput = document.getElementById("angleInput");
         angleInput.addEventListener("focus", () => angleInput.select());
         angleInput.addEventListener("click", () => angleInput.select());
-
-        // Enter key sends
         angleInput.addEventListener("keydown", async (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
@@ -794,7 +939,7 @@
         // Send button
         document.getElementById("sendBtn").addEventListener("click", async () => {
             if (!selectedLocation) {
-                alert("Select a location first.");
+                alert("Select a servo first.");
                 return;
             }
             const parsed = getAngleFromInput();

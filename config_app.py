@@ -91,11 +91,6 @@ def _ensure_config_dir() -> None:
 
 
 def _load_or_init_location_order() -> List[str]:
-    """
-    location_order.json is the shared canonical ordering file.
-
-    This config app will ensure it exists. The hub/program-writer will read it too.
-    """
     _ensure_config_dir()
 
     default_order = [loc.key for loc in LOCATIONS]
@@ -126,9 +121,6 @@ def _load_or_init_location_order() -> List[str]:
 
 
 def _load_saved_config() -> Dict[str, Any]:
-    """
-    Loads config from disk; if missing/invalid, returns a default config.
-    """
     _ensure_config_dir()
 
     if not CONFIG_FILE.exists():
@@ -254,7 +246,7 @@ app = Flask(__name__, static_folder="static")
 _location_order: List[str] = _load_or_init_location_order()
 
 _saved_cfg: Dict[str, Any] = _load_saved_config()
-_draft_cfg: Dict[str, Any] = json.loads(json.dumps(_saved_cfg))  # deep-ish copy
+_draft_cfg: Dict[str, Any] = json.loads(json.dumps(_saved_cfg))
 
 # Hardware driver (optional)
 pca: Optional[PCA9685] = None
@@ -271,7 +263,6 @@ except Exception as e:
 # -----------------------------
 @app.get("/")
 def index():
-    # Your tree has static/config_page.html
     return send_from_directory("static", "config_page.html")
 
 
@@ -317,13 +308,6 @@ def api_set_channel_notes():
 
 @app.post("/api/channel")
 def api_set_channel():
-    """
-    Body: { "location": "<key>", "channel": <0..15 or null> }
-
-    Server enforces single availability pool:
-      - unassign with null
-      - assign only if channel is available OR already owned by this location
-    """
     global _draft_cfg
 
     data = request.get_json(force=True)
@@ -362,14 +346,6 @@ def api_set_channel():
 
 @app.post("/api/limits")
 def api_set_limits():
-    """
-    Body: {
-      "location": "<key>",
-      "deg_min": <int>,
-      "deg_max": <int>,
-      "invert": <bool>
-    }
-    """
     global _draft_cfg
 
     data = request.get_json(force=True)
@@ -431,12 +407,6 @@ def api_save():
 
 @app.post("/api/command")
 def api_command():
-    """
-    Body: { "location": "<key>", "angle_deg": <int> }
-
-    Uses DRAFT config (so you can test before saving).
-    Applies per-location limits/invert.
-    """
     global _draft_cfg, pca
 
     if pca is None:
