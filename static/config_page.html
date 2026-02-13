@@ -40,7 +40,9 @@
             background: var(--panel);
             border-radius: 16px;
             position: relative;
-            overflow: hidden;
+            overflow: auto;
+            min-width: 980px;
+            min-height: 680px;
         }
 
         .sidebar {
@@ -126,7 +128,7 @@
             border: 1px solid rgba(255, 255, 255, .14);
             border-radius: 14px;
             padding: 10px;
-            transform: translate(-50%, -50%);
+            transform: none;
             box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
         }
 
@@ -365,15 +367,19 @@
 
         /* Widget layout (percent-based, tweak freely) */
         const widgetPositions = {
-            front_left_hip: { x: 15, y: 30 },
-            front_left_knee: { x: 15, y: 45 },
-            front_right_hip: { x: 70, y: 30 },
-            front_right_knee: { x: 70, y: 45 },
-            back_left_hip: { x: 25, y: 65 },
-            back_left_knee: { x: 25, y: 80 },
-            back_right_hip: { x: 60, y: 65 },
-            back_right_knee: { x: 60, y: 80 },
+            front_left_hip: { x: 20, y: 70 },
+            front_left_knee: { x: 20, y: 200 },
+
+            front_right_hip: { x: 740, y: 70 },
+            front_right_knee: { x: 740, y: 200 },
+
+            back_left_hip: { x: 140, y: 360 },
+            back_left_knee: { x: 140, y: 490 },
+
+            back_right_hip: { x: 620, y: 360 },
+            back_right_knee: { x: 620, y: 490 },
         };
+
 
         /* -------------------- API helpers -------------------- */
         async function api(url, method = "GET", body = null) {
@@ -463,8 +469,8 @@
 
                 const w = document.createElement("div");
                 w.className = "widget" + (selectedLocation === loc.key ? " selected" : "");
-                w.style.left = `${pos.x}%`;
-                w.style.top = `${pos.y}%`;
+                w.style.left = `${pos.x}px`;
+                w.style.top = `${pos.y}px`;
 
                 const label = document.createElement("div");
                 label.className = "label";
