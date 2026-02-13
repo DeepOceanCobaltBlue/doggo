@@ -19,18 +19,21 @@ _AI = 0x20  # Auto-Increment
 # MODE2 bits
 _OUTDRV = 0x04  # Totem pole (recommended for servos)
 
+ANGLE_MIN_DEG = 0
+ANGLE_MAX_DEG = 270
+
 
 @dataclass(frozen=True)
 class ServoPulseRange:
-    """Default pulse range used for mapping degrees -> pulse width."""
-    min_us: int = 900
-    max_us: int = 2100
+    """Pulse range used for mapping logical degrees -> pulse width."""
+    min_us: int = 500   
+    max_us: int = 2500
 
 
 @dataclass(frozen=True)
 class ServoLimits:
     """
-    Per-servo clamp and direction settings, in degree-space (0..270).
+    Per-servo clamp and direction settings, in logical degree-space (0..270).
     - deg_min/deg_max clamp the commanded angle
     - invert flips direction inside the clamp range
     """
@@ -86,42 +89,51 @@ class PCA9685:
     def set_limits_for_channel(self, channel: int, limits: ServoLimits) -> None:
         """Persist per-channel limits inside the driver."""
         channel = _clamp_int(int(channel), 0, 15)
-        lo = _clamp_int(int(limits.deg_min), 0, 270)
-        hi = _clamp_int(int(limits.deg_max), 0, 270)
+        lo = _clamp_int(int(limits.deg_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+        hi = _clamp_int(int(limits.deg_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
         if hi < lo:
             lo, hi = hi, lo
         self.channel_limits[channel] = ServoLimits(deg_min=lo, deg_max=hi, invert=bool(limits.invert))
 
     def set_channel_angle_deg(self, channel: int, angle_deg: int, limits: Optional[ServoLimits] = None) -> None:
         """
-        Clamp/invert in degree space, map to pulse_us using pulse_range, then write PWM.
-        Mapping uses the effective clamp range for full resolution within allowed motion.
+        Clamp/invert in degree space, map to pulse_us using GLOBAL logical domain (0..270),
+        then write PWM.
+
+        IMPORTANT:
+        - Limits only clamp/invert; they DO NOT rescale the mapping.
+        - This guarantees a stable interpretation of angles (e.g., 135 stays center in pulse space).
         """
         channel = _clamp_int(int(channel), 0, 15)
-        angle_deg = int(angle_deg)
+
+        # Force caller input into logical domain first (prevents weird negatives/huge values)
+        angle_deg = _clamp_int(int(angle_deg), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
 
         eff_limits = limits or self.channel_limits.get(channel) or self.default_limits
 
-        deg_min = _clamp_int(int(eff_limits.deg_min), 0, 270)
-        deg_max = _clamp_int(int(eff_limits.deg_max), 0, 270)
+        deg_min = _clamp_int(int(eff_limits.deg_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+        deg_max = _clamp_int(int(eff_limits.deg_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
         if deg_max < deg_min:
             deg_min, deg_max = deg_max, deg_min
 
-        # Clamp
+        # Clamp into per-servo window
         angle_deg = _clamp_int(angle_deg, deg_min, deg_max)
 
         # Invert within [deg_min, deg_max]
         if eff_limits.invert:
             angle_deg = deg_max - (angle_deg - deg_min)
 
-        t = angle_deg / 270.0  
-        t = max(0.0, min(1.0, t))
+        # Global mapping (stable)
+        t = angle_deg / float(ANGLE_MAX_DEG)
+        if t < 0.0:
+            t = 0.0
+        elif t > 1.0:
+            t = 1.0
 
         pulse_us = int(round(
             self.pulse_range.min_us + t * (self.pulse_range.max_us - self.pulse_range.min_us)
         ))
         self.set_channel_pulse_us(channel, pulse_us)
-
 
     def set_channel_pulse_us(self, channel: int, pulse_us: int) -> None:
         channel = _clamp_int(int(channel), 0, 15)
