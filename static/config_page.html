@@ -1419,8 +1419,10 @@
             const off_rk = Number(s.rear_knee_offset_deg ?? 0);
 
             // anchors in model space (mm)
+            // Mirror by side so left frame shows front left of rear,
+            // right frame shows front right of rear.
             const Hf = { x: 0, y: hip_y };
-            const Hr = { x: -hip_dx, y: hip_y };
+            const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
 
             // absolute segment angles (servo angle + offset)
             const a_fh = Number(a.front_hip) + off_fh;

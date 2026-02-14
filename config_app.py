@@ -559,7 +559,9 @@ def _build_leg_capsules_for_side(
 
     Anchors:
       front hip at (0, hip_y)
-      rear hip at (-hip_dx, hip_y)
+      rear hip at:
+        - (+hip_dx, hip_y) for left side (front appears left of rear in view)
+        - (-hip_dx, hip_y) for right side (front appears right of rear in view)
 
     Angles are absolute directions (servo-angle terms + offsets):
       - hip angle -> thigh direction
@@ -571,7 +573,7 @@ def _build_leg_capsules_for_side(
 
     # Anchors
     Hf = (0.0, hip_y)
-    Hr = (-hip_dx, hip_y)
+    Hr = (hip_dx, hip_y) if side == "left" else (-hip_dx, hip_y)
 
     # Lengths
     Ltf = float(s["thigh_len_front_mm"])
