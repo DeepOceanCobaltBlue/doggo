@@ -31,8 +31,8 @@
 
         .wrap {
             display: grid;
-            grid-template-columns: 1fr 360px;
-            grid-template-rows: 1fr 180px;
+            grid-template-columns: 1fr 380px;
+            grid-template-rows: 1fr 190px;
             height: 100vh;
             gap: 12px;
             padding: 12px;
@@ -44,6 +44,7 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            min-width: 0;
         }
 
         .sidebar {
@@ -54,6 +55,7 @@
             flex-direction: column;
             gap: 12px;
             overflow: auto;
+            min-width: 0;
         }
 
         .bar {
@@ -73,6 +75,7 @@
             border-radius: 14px;
             padding: 12px;
             height: 100%;
+            min-width: 0;
         }
 
         .title {
@@ -136,10 +139,6 @@
             color: var(--text);
         }
 
-        input[type="checkbox"] {
-            transform: scale(1.1);
-        }
-
         textarea {
             width: 100%;
             min-height: 130px;
@@ -159,15 +158,41 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
+            flex-wrap: wrap;
+            min-width: 0;
         }
 
         .field {
             display: flex;
             flex-direction: column;
             gap: 6px;
+            min-width: 0;
         }
 
-        /* Main dynamic limits placeholder */
+        .radioRow {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .radioPill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border: 1px solid rgba(255, 255, 255, .18);
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .45);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .radioPill input {
+            transform: translateY(1px);
+        }
+
+        /* Main: canvas */
         .mainHeader {
             padding: 12px 14px;
             display: flex;
@@ -179,16 +204,41 @@
 
         .mainBody {
             padding: 14px;
-            overflow: auto;
+            overflow: hidden;
             flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 0;
         }
 
-        .placeholder {
-            border: 1px dashed rgba(255, 255, 255, .22);
+        .canvasWrap {
+            flex: 1;
+            min-height: 0;
+            border: 1px solid rgba(255, 255, 255, .14);
             border-radius: 14px;
-            padding: 14px;
-            min-height: 220px;
             background: rgba(15, 18, 32, .55);
+            overflow: hidden;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .canvasOverlay {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .72);
+            border: 1px solid rgba(255, 255, 255, .12);
+            font-size: 12px;
+            color: var(--muted);
+            max-width: calc(100% - 20px);
         }
 
         /* Bottom bar left: servo selector grid */
@@ -197,6 +247,7 @@
             flex-direction: column;
             gap: 10px;
             height: 100%;
+            min-width: 0;
         }
 
         .selectorTopLabels {
@@ -222,6 +273,7 @@
             grid-template-rows: auto auto;
             gap: 10px;
             align-items: center;
+            min-width: 0;
         }
 
         .rowLabel {
@@ -238,6 +290,7 @@
             width: 100%;
             font-weight: 800;
             text-transform: lowercase;
+            white-space: nowrap;
         }
 
         .channelBlock {
@@ -248,6 +301,7 @@
             gap: 6px;
             align-self: stretch;
             justify-content: center;
+            min-width: 0;
         }
 
         .channelBlock label {
@@ -265,6 +319,7 @@
             flex-direction: column;
             gap: 10px;
             height: 100%;
+            min-width: 0;
         }
 
         .angleRow {
@@ -314,7 +369,7 @@
             min-width: 70px;
         }
 
-        /* Sidebar split */
+        /* Sidebar sections */
         .sidebarSection {
             border: 1px solid rgba(255, 255, 255, .12);
             border-radius: 14px;
@@ -323,12 +378,29 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            min-width: 0;
         }
 
         .sectionTitle {
             font-weight: 900;
             font-size: 14px;
             margin-bottom: 2px;
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .grid3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
     </style>
 </head>
@@ -339,20 +411,33 @@
         <div class="main">
             <div class="mainHeader">
                 <div>
-                    <div class="title">Dynamic Limits</div>
-                    <div class="muted">Placeholder area for collision-aware limits (front/rear interference) editor.
-                    </div>
+                    <div class="title">Dynamic limits</div>
+                    <div class="muted">2D capsule depiction + collision clamp preview (Normal/Test).</div>
                 </div>
                 <div id="hw-status" class="muted"></div>
             </div>
 
             <div class="mainBody">
-                <div class="placeholder">
-                    <div style="font-weight:900;margin-bottom:6px;">Dynamic limits table (coming next)</div>
-                    <div class="muted">
-                        This area will define relative constraints between front/rear legs on the same side to prevent
-                        collisions.
-                        We’ll build the editor and then enforce it in the command path.
+                <div class="row">
+                    <div class="radioRow">
+                        <span class="muted" style="font-weight:900;">Side</span>
+                        <label class="radioPill">
+                            <input type="radio" name="side" id="sideLeft" value="left">
+                            <span>Left</span>
+                        </label>
+                        <label class="radioPill">
+                            <input type="radio" name="side" id="sideRight" value="right">
+                            <span>Right</span>
+                        </label>
+                    </div>
+
+                    <div class="muted" id="poseInfo">—</div>
+                </div>
+
+                <div class="canvasWrap">
+                    <canvas id="viz"></canvas>
+                    <div class="canvasOverlay" id="vizOverlay">
+                        Select a side, then move servos (Normal/Test) to see the capsules update.
                     </div>
                 </div>
             </div>
@@ -362,7 +447,7 @@
             <div class="row" style="align-items:flex-start;">
                 <div>
                     <div class="title" style="margin:0;">Doggo Config</div>
-                    <div class="muted">Channel mapping + travel limits + notes/hotkeys.</div>
+                    <div class="muted">Channel mapping + travel limits + collision model + notes/hotkeys.</div>
                 </div>
             </div>
 
@@ -375,20 +460,125 @@
                 <div class="sectionTitle">Travel limits</div>
                 <div class="muted">Selected: <span id="selectedLabel">None</span></div>
 
-                <div class="field">
-                    <label class="muted">Min angle (deg)</label>
-                    <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
-                </div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Min angle</label>
+                        <input id="minDeg" type="number" min="0" max="270" step="1" disabled />
+                    </div>
 
-                <div class="field">
-                    <label class="muted">Max angle (deg)</label>
-                    <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
+                    <div class="field">
+                        <label class="muted">Max angle</label>
+                        <input id="maxDeg" type="number" min="0" max="270" step="1" disabled />
+                    </div>
                 </div>
 
                 <div class="row">
                     <label class="muted" for="invertChk">Invert</label>
                     <input id="invertChk" type="checkbox" disabled />
                 </div>
+            </div>
+
+            <div class="sidebarSection">
+                <div class="sectionTitle">Collision model</div>
+
+                <div class="muted">Edits save to <span class="mono">config/dynamic_limits.json</span>.</div>
+
+                <div class="divider"></div>
+
+                <div style="font-weight:900;">Global</div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Search step (deg)</label>
+                        <input id="dl_step" type="number" min="1" max="45" step="1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Search max iters</label>
+                        <input id="dl_iters" type="number" min="1" max="5000" step="1">
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div style="font-weight:900;">Side variables (<span id="dl_side_label">left</span>)</div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Hip dx (mm)</label>
+                        <input id="dl_hip_dx" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Hip y (mm)</label>
+                        <input id="dl_hip_y" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Front thigh len (mm)</label>
+                        <input id="dl_ltf" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Front shin len (mm)</label>
+                        <input id="dl_lsf" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Rear thigh len (mm)</label>
+                        <input id="dl_ltr" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear shin len (mm)</label>
+                        <input id="dl_lsr" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Front thigh radius (mm)</label>
+                        <input id="dl_r_ft" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Front shin radius (mm)</label>
+                        <input id="dl_r_fs" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Rear thigh radius (mm)</label>
+                        <input id="dl_r_rt" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear shin radius (mm)</label>
+                        <input id="dl_r_rs" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Front hip offset (deg)</label>
+                        <input id="dl_off_fh" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Front knee offset (deg)</label>
+                        <input id="dl_off_fk" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Rear hip offset (deg)</label>
+                        <input id="dl_off_rh" type="number" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear knee offset (deg)</label>
+                        <input id="dl_off_rk" type="number" step="0.1">
+                    </div>
+                </div>
+
+                <div class="muted" id="dl_status">—</div>
             </div>
 
             <div class="sidebarSection">
@@ -457,11 +647,11 @@
                     <!-- Rear row label -->
                     <div class="rowLabel" style="grid-row:2;">Rear</div>
 
-                    <button id="btn_back_left_knee" class="servoBtn" style="grid-row:2;grid-column:2;">knee</button>
-                    <button id="btn_back_left_hip" class="servoBtn" style="grid-row:2;grid-column:3;">hip</button>
+                    <button id="btn_rear_left_knee" class="servoBtn" style="grid-row:2;grid-column:2;">knee</button>
+                    <button id="btn_rear_left_hip" class="servoBtn" style="grid-row:2;grid-column:3;">hip</button>
 
-                    <button id="btn_back_right_hip" class="servoBtn" style="grid-row:2;grid-column:5;">hip</button>
-                    <button id="btn_back_right_knee" class="servoBtn" style="grid-row:2;grid-column:6;">knee</button>
+                    <button id="btn_rear_right_hip" class="servoBtn" style="grid-row:2;grid-column:5;">hip</button>
+                    <button id="btn_rear_right_knee" class="servoBtn" style="grid-row:2;grid-column:6;">knee</button>
                 </div>
 
                 <div class="muted">
@@ -471,9 +661,23 @@
 
             <!-- Right half: angle control -->
             <div class="card angleWrap">
-                <div class="row">
-                    <div style="font-weight:900;">Angle control</div>
-                    <div class="muted">0–270</div>
+                <div class="row" style="align-items:flex-start;">
+                    <div>
+                        <div style="font-weight:900;">Angle control</div>
+                        <div class="muted">0–270</div>
+                    </div>
+
+                    <div class="radioRow">
+                        <span class="muted" style="font-weight:900;">Mode</span>
+                        <label class="radioPill">
+                            <input type="radio" name="mode" id="modeNormal" value="normal">
+                            <span>Normal</span>
+                        </label>
+                        <label class="radioPill">
+                            <input type="radio" name="mode" id="modeTest" value="test">
+                            <span>Test</span>
+                        </label>
+                    </div>
                 </div>
 
                 <div class="angleRow">
@@ -488,6 +692,13 @@
                 </div>
 
                 <div class="hotkeys" id="hotkeyButtons"></div>
+
+                <div class="row">
+                    <select id="stanceSelect" style="min-width:180px;"></select>
+                    <button id="activateStanceBtn" class="primary">Activate</button>
+                </div>
+
+                <div class="muted" id="cmdStatus">—</div>
             </div>
 
         </div>
@@ -499,6 +710,17 @@
         let draft = null;
         let availableChannels = [];
         let selectedLocation = null;
+
+        // dynamic limit variables + state angles from backend
+        let dynVars = null;
+        let hwAngles = {};
+        let simAngles = {};
+        let collisionStatus = null;
+        let stances = [];
+
+        // UI mode
+        const MODE_KEY = "doggo:mode:v1";
+        let mode = "normal"; // "normal" | "test"
 
         // Per-location last commanded angle (persisted)
         const LAST_ANGLES_KEY = "doggo:lastAngles:v1";
@@ -518,10 +740,10 @@
             btn_front_right_hip: "front_right_hip",
             btn_front_right_knee: "front_right_knee",
 
-            btn_back_left_knee: "back_left_knee",
-            btn_back_left_hip: "back_left_hip",
-            btn_back_right_hip: "back_right_hip",
-            btn_back_right_knee: "back_right_knee",
+            btn_rear_left_knee: "rear_left_knee",
+            btn_rear_left_hip: "rear_left_hip",
+            btn_rear_right_hip: "rear_right_hip",
+            btn_rear_right_knee: "rear_right_knee",
         };
 
         /* -------------------- API helpers -------------------- */
@@ -534,6 +756,46 @@
             const res = await fetch(url, opts);
             const data = await res.json();
             return { ok: res.ok, status: res.status, data };
+        }
+
+        function renderStanceSelect(defaultName = "default") {
+            const sel = document.getElementById("stanceSelect");
+            const btn = document.getElementById("activateStanceBtn");
+            sel.innerHTML = "";
+
+            if (!stances.length) {
+                const opt = document.createElement("option");
+                opt.value = "";
+                opt.textContent = "No stances found";
+                sel.appendChild(opt);
+                sel.disabled = true;
+                btn.disabled = true;
+                return;
+            }
+
+            for (const s of stances) {
+                const opt = document.createElement("option");
+                opt.value = s.name;
+                opt.textContent = s.file || `${s.name}.json`;
+                sel.appendChild(opt);
+            }
+
+            const preferred = stances.find(s => s.name === defaultName);
+            sel.value = preferred ? preferred.name : stances[0].name;
+            sel.disabled = false;
+            btn.disabled = false;
+        }
+
+        async function loadStances() {
+            const resp = await api("/api/stances");
+            if (!resp.ok) {
+                stances = [];
+                renderStanceSelect();
+                setCmdStatus(`Failed to load stances (${resp.status})`, "danger");
+                return;
+            }
+            stances = Array.isArray(resp.data.stances) ? resp.data.stances : [];
+            renderStanceSelect(resp.data.default_stance || "default");
         }
 
         /* -------------------- Persistence -------------------- */
@@ -565,6 +827,17 @@
             try { localStorage.setItem(HOTKEYS_KEY, JSON.stringify(hotkeys)); } catch { }
         }
 
+        function loadMode() {
+            try {
+                const s = localStorage.getItem(MODE_KEY);
+                if (s === "normal" || s === "test") mode = s;
+            } catch { }
+        }
+
+        function saveMode() {
+            try { localStorage.setItem(MODE_KEY, mode); } catch { }
+        }
+
         /* -------------------- Utils -------------------- */
         function clampInt(v, lo, hi) {
             return Math.max(lo, Math.min(hi, v));
@@ -572,6 +845,11 @@
 
         function toInt(v, fallback = null) {
             const n = Number.parseInt(String(v).trim(), 10);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function toFloat(v, fallback = null) {
+            const n = Number.parseFloat(String(v).trim());
             return Number.isFinite(n) ? n : fallback;
         }
 
@@ -600,6 +878,22 @@
             return loc ? loc.label : locKey;
         }
 
+        function currentStateAngles() {
+            return mode === "test" ? simAngles : hwAngles;
+        }
+
+        function activeSide() {
+            if (!dynVars) return "left";
+            const a = String(dynVars.active_side || "left").toLowerCase();
+            return (a === "right") ? "right" : "left";
+        }
+
+        function setCmdStatus(text, cls = "muted") {
+            const el = document.getElementById("cmdStatus");
+            el.className = cls;
+            el.textContent = text;
+        }
+
         /* -------------------- Sidebar + selection -------------------- */
         function setSaveResetEnabled(saveEnabled, resetEnabled) {
             document.getElementById("saveBtn").disabled = !saveEnabled;
@@ -613,7 +907,7 @@
             const maxEl = document.getElementById("maxDeg");
             const invEl = document.getElementById("invertChk");
 
-            if (!selectedLocation) {
+            if (!selectedLocation || !draft) {
                 labelEl.textContent = "None";
                 shortEl.textContent = "None";
                 minEl.value = "";
@@ -665,7 +959,7 @@
             sel.disabled = false;
 
             const current = draft.locations[selectedLocation].channel; // may be null
-            const pool = [...availableChannels];
+            const pool = [...(availableChannels || [])];
 
             if (current !== null && current !== undefined && !pool.includes(current)) pool.push(current);
             pool.sort((a, b) => a - b);
@@ -686,7 +980,15 @@
             renderServoButtons();
             buildChannelSelectOptions();
 
-            // per-location last commanded angle
+            // Fill angle input from current state for mode (preferred)
+            const st = currentStateAngles();
+            if (st && st[selectedLocation] !== undefined) {
+                const v = clampInt(toInt(st[selectedLocation], 135), 0, 270);
+                setAngleInput(v);
+                return;
+            }
+
+            // Fallback: per-location lastAngles
             if (lastAngles[selectedLocation] !== undefined) {
                 const v = clampInt(toInt(lastAngles[selectedLocation], 0), 0, 270);
                 setAngleInput(v);
@@ -721,13 +1023,63 @@
                 alert("Select a servo first.");
                 return;
             }
-            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angle });
+
+            setCmdStatus(`${mode === "test" ? "Test" : "Normal"}: sending…`, "muted");
+            const resp = await api("/api/command", "POST", { location: selectedLocation, angle_deg: angle, mode });
             if (!resp.ok) {
                 alert(resp.data.error || "Command failed");
+                setCmdStatus("Command failed", "danger");
                 return;
             }
-            lastAngles[selectedLocation] = angle;
+
+            const applied = clampInt(toInt(resp.data.applied_angle, angle), 0, 270);
+
+            // Keep UI consistent with what actually happened
+            setAngleInput(applied);
+            lastAngles[selectedLocation] = applied;
             saveLastAngles();
+
+            // Refresh state angles from response path:
+            // server mutates hw_angles or sim_angles; easiest is to refresh config snapshot
+            await refreshAnglesOnly();
+
+            // Status
+            if (resp.data.clamped) {
+                const det = resp.data.collision ? `${resp.data.collision.pair} (d=${resp.data.collision.min_distance_mm?.toFixed?.(2) ?? "?"} <= ${resp.data.collision.threshold_mm?.toFixed?.(2) ?? "?"})` : "collision";
+                setCmdStatus(`Clamped → ${applied}° (${det})`, "danger");
+            } else {
+                setCmdStatus(`Applied → ${applied}°`, "ok");
+            }
+
+            // Re-render viz
+            renderViz();
+        }
+
+        async function activateStance() {
+            const sel = document.getElementById("stanceSelect");
+            const stance = String(sel.value || "").trim();
+            if (!stance) {
+                alert("Select a stance first.");
+                return;
+            }
+
+            setCmdStatus(`${mode === "test" ? "Test" : "Normal"}: activating stance '${stance}'…`, "muted");
+            const resp = await api("/api/stance/activate", "POST", { stance, mode });
+            if (!resp.ok || !resp.data?.ok) {
+                const msg = resp.data?.error || `HTTP ${resp.status}`;
+                setCmdStatus(`Stance '${stance}' failed: ${msg}`, "danger");
+                await refreshAnglesOnly();
+                return;
+            }
+
+            const count = Number(resp.data.completed_count || 0);
+            const delay = Number(resp.data.delay_ms || 0);
+            setCmdStatus(`Stance '${stance}' applied (${count} joints @ ${delay}ms step)`, "ok");
+
+            await refreshAnglesOnly();
+            if (selectedLocation) {
+                applySelection(selectedLocation);
+            }
         }
 
         async function adjustAngle(delta) {
@@ -846,7 +1198,407 @@
             }, 500);
         }
 
-        /* -------------------- Init + refresh -------------------- */
+        /* -------------------- Dynamic vars editor -------------------- */
+        let dlSaveTimer = null;
+        let dlLastSentStr = null;
+
+        function setDlStatus(text, cls = "muted") {
+            const el = document.getElementById("dl_status");
+            el.className = cls;
+            el.textContent = text;
+        }
+
+        function setSideRadio(side) {
+            if (side === "right") {
+                document.getElementById("sideRight").checked = true;
+            } else {
+                document.getElementById("sideLeft").checked = true;
+            }
+            document.getElementById("dl_side_label").textContent = side;
+        }
+
+        function syncDynVarsInputs() {
+            if (!dynVars) return;
+            const side = activeSide();
+            setSideRadio(side);
+
+            // globals
+            document.getElementById("dl_step").value = String(dynVars.search_step_deg ?? 1);
+            document.getElementById("dl_iters").value = String(dynVars.search_max_iters ?? 300);
+
+            const s = dynVars[side] || {};
+            document.getElementById("dl_hip_dx").value = String(s.hip_dx_mm ?? 80);
+            document.getElementById("dl_hip_y").value = String(s.hip_y_mm ?? 60);
+
+            document.getElementById("dl_ltf").value = String(s.thigh_len_front_mm ?? 70);
+            document.getElementById("dl_lsf").value = String(s.shin_len_front_mm ?? 90);
+            document.getElementById("dl_ltr").value = String(s.thigh_len_rear_mm ?? 70);
+            document.getElementById("dl_lsr").value = String(s.shin_len_rear_mm ?? 90);
+
+            document.getElementById("dl_r_ft").value = String(s.front_thigh_radius_mm ?? 6);
+            document.getElementById("dl_r_fs").value = String(s.front_shin_radius_mm ?? 6);
+            document.getElementById("dl_r_rt").value = String(s.rear_thigh_radius_mm ?? 6);
+            document.getElementById("dl_r_rs").value = String(s.rear_shin_radius_mm ?? 6);
+
+            document.getElementById("dl_off_fh").value = String(s.front_hip_offset_deg ?? 0);
+            document.getElementById("dl_off_fk").value = String(s.front_knee_offset_deg ?? 0);
+            document.getElementById("dl_off_rh").value = String(s.rear_hip_offset_deg ?? 0);
+            document.getElementById("dl_off_rk").value = String(s.rear_knee_offset_deg ?? 0);
+        }
+
+        function readDynVarsInputsIntoModel() {
+            if (!dynVars) return;
+
+            // globals
+            const step = clampInt(toInt(document.getElementById("dl_step").value, dynVars.search_step_deg ?? 1), 1, 45);
+            const iters = clampInt(toInt(document.getElementById("dl_iters").value, dynVars.search_max_iters ?? 300), 1, 5000);
+            dynVars.search_step_deg = step;
+            dynVars.search_max_iters = iters;
+
+            // active side label already set by radios; ensure dynVars.active_side is correct
+            dynVars.active_side = activeSide();
+
+            const side = activeSide();
+            dynVars[side] = dynVars[side] || {};
+
+            const s = dynVars[side];
+            const f = (id, key) => {
+                const v = toFloat(document.getElementById(id).value, s[key] ?? 0);
+                s[key] = v;
+            };
+
+            f("dl_hip_dx", "hip_dx_mm");
+            f("dl_hip_y", "hip_y_mm");
+
+            f("dl_ltf", "thigh_len_front_mm");
+            f("dl_lsf", "shin_len_front_mm");
+            f("dl_ltr", "thigh_len_rear_mm");
+            f("dl_lsr", "shin_len_rear_mm");
+
+            f("dl_r_ft", "front_thigh_radius_mm");
+            f("dl_r_fs", "front_shin_radius_mm");
+            f("dl_r_rt", "rear_thigh_radius_mm");
+            f("dl_r_rs", "rear_shin_radius_mm");
+
+            f("dl_off_fh", "front_hip_offset_deg");
+            f("dl_off_fk", "front_knee_offset_deg");
+            f("dl_off_rh", "rear_hip_offset_deg");
+            f("dl_off_rk", "rear_knee_offset_deg");
+        }
+
+        function scheduleDynVarsSave() {
+            if (!dynVars) return;
+            if (dlSaveTimer) clearTimeout(dlSaveTimer);
+
+            dlSaveTimer = setTimeout(async () => {
+                readDynVarsInputsIntoModel();
+
+                const payload = { dynamic_limits: dynVars };
+                const s = JSON.stringify(payload);
+                if (s === dlLastSentStr) return;
+
+                setDlStatus("Saving…", "muted");
+                const resp = await api("/api/dynamic_limits", "POST", payload);
+                if (!resp.ok) {
+                    setDlStatus(`Save failed (${resp.data?.error || resp.status})`, "danger");
+                    return;
+                }
+                dynVars = resp.data.dynamic_limits;
+                dlLastSentStr = JSON.stringify({ dynamic_limits: dynVars });
+                setDlStatus("Saved", "ok");
+
+                // keep UI consistent with server canonical values
+                syncDynVarsInputs();
+                renderViz();
+            }, 350);
+        }
+
+        /* -------------------- Mode handling -------------------- */
+        function setModeRadios() {
+            document.getElementById("modeNormal").checked = (mode === "normal");
+            document.getElementById("modeTest").checked = (mode === "test");
+        }
+
+        function restoreUiToActualStateAfterModeSwitch() {
+            // On switching to normal: restore to hw angles
+            // On switching to test: restore to sim angles
+            const st = currentStateAngles();
+
+            if (selectedLocation && st && st[selectedLocation] !== undefined) {
+                const v = clampInt(toInt(st[selectedLocation], 135), 0, 270);
+                setAngleInput(v);
+                lastAngles[selectedLocation] = v;
+                saveLastAngles();
+            }
+            renderViz();
+        }
+
+        /* -------------------- Visualization (canvas) -------------------- */
+        function resizeCanvasToDisplaySize(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const w = Math.max(1, Math.floor(rect.width * dpr));
+            const h = Math.max(1, Math.floor(rect.height * dpr));
+            if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                return true;
+            }
+            return false;
+        }
+
+        function degToRad(deg) {
+            return deg * Math.PI / 180.0;
+        }
+
+        function unitFromAngleDeg(deg) {
+            const r = degToRad(deg);
+            return { x: Math.cos(r), y: Math.sin(r) };
+        }
+
+        function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
+        function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
+
+        function getSideAngles(side, state) {
+            const s = state || {};
+            if (side === "right") {
+                return {
+                    front_hip: s.front_right_hip ?? 135,
+                    front_knee: s.front_right_knee ?? 135,
+                    rear_hip: s.rear_right_hip ?? 135,
+                    rear_knee: s.rear_right_knee ?? 135,
+                };
+            }
+            return {
+                front_hip: s.front_left_hip ?? 135,
+                front_knee: s.front_left_knee ?? 135,
+                rear_hip: s.rear_left_hip ?? 135,
+                rear_knee: s.rear_left_knee ?? 135,
+            };
+        }
+
+        function buildVizGeometry() {
+            if (!dynVars) return null;
+
+            const side = activeSide();
+            const s = dynVars[side] || {};
+            const st = currentStateAngles();
+            const a = getSideAngles(side, st);
+
+            const hip_dx = Number(s.hip_dx_mm ?? 80);
+            const hip_y = Number(s.hip_y_mm ?? 60);
+
+            const Ltf = Number(s.thigh_len_front_mm ?? 70);
+            const Lsf = Number(s.shin_len_front_mm ?? 90);
+            const Ltr = Number(s.thigh_len_rear_mm ?? 70);
+            const Lsr = Number(s.shin_len_rear_mm ?? 90);
+
+            const r_ft = Number(s.front_thigh_radius_mm ?? 6);
+            const r_fs = Number(s.front_shin_radius_mm ?? 6);
+            const r_rt = Number(s.rear_thigh_radius_mm ?? 6);
+            const r_rs = Number(s.rear_shin_radius_mm ?? 6);
+
+            const off_fh = Number(s.front_hip_offset_deg ?? 0);
+            const off_fk = Number(s.front_knee_offset_deg ?? 0);
+            const off_rh = Number(s.rear_hip_offset_deg ?? 0);
+            const off_rk = Number(s.rear_knee_offset_deg ?? 0);
+
+            // anchors in model space (mm)
+            const Hf = { x: 0, y: hip_y };
+            const Hr = { x: -hip_dx, y: hip_y };
+
+            // absolute segment angles (servo angle + offset)
+            const a_fh = Number(a.front_hip) + off_fh;
+            const a_fk = Number(a.front_knee) + off_fk;
+            const a_rh = Number(a.rear_hip) + off_rh;
+            const a_rk = Number(a.rear_knee) + off_rk;
+
+            const uf = unitFromAngleDeg(a_fh);
+            const Kf = add(Hf, mul(uf, Ltf));
+            const vf = unitFromAngleDeg(a_fk);
+            const Ff = add(Kf, mul(vf, Lsf));
+
+            const ur = unitFromAngleDeg(a_rh);
+            const Kr = add(Hr, mul(ur, Ltr));
+            const vr = unitFromAngleDeg(a_rk);
+            const Fr = add(Kr, mul(vr, Lsr));
+
+            return {
+                side,
+                anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
+                angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
+                simAngles: { a_fh, a_fk, a_rh, a_rk },
+                lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr },
+                radii: { r_ft, r_fs, r_rt, r_rs },
+            };
+        }
+
+        function renderViz() {
+            const canvas = document.getElementById("viz");
+            const ctx = canvas.getContext("2d");
+            const resized = resizeCanvasToDisplaySize(canvas);
+            if (resized) { /* noop */ }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const g = buildVizGeometry();
+            const overlay = document.getElementById("vizOverlay");
+            const poseInfo = document.getElementById("poseInfo");
+
+            if (!g) {
+                overlay.textContent = "Waiting for dynamic_limits…";
+                poseInfo.textContent = "—";
+                return;
+            }
+
+            const { Hf, Hr, Kf, Kr, Ff, Fr } = g.anchors;
+
+            // Compute bounds in model space
+            const pts = [Hf, Hr, Kf, Kr, Ff, Fr];
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of pts) {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+            }
+
+            // pad bounds
+            const pad = 50;
+            minX -= pad; maxX += pad;
+            minY = Math.min(minY - pad, -20);
+            maxY += pad;
+
+            // Map model -> canvas
+            const W = canvas.width, H = canvas.height;
+            const sx = W / (maxX - minX);
+            const sy = H / (maxY - minY);
+            const s = Math.min(sx, sy);
+
+            const ox = (W - s * (maxX - minX)) / 2 - s * minX;
+            const oy = (H - s * (maxY - minY)) / 2 + s * maxY;
+
+            const toCanvas = (p) => ({ x: ox + s * p.x, y: oy - s * p.y });
+
+            // Ground line y=0
+            const y0 = toCanvas({ x: 0, y: 0 }).y;
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, y0);
+            ctx.lineTo(W, y0);
+            ctx.stroke();
+            ctx.restore();
+
+            // Draw capsule helper (thick line with round caps)
+            function drawCapsule(a, b, r_mm, alpha) {
+                const A = toCanvas(a);
+                const B = toCanvas(b);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.lineWidth = Math.max(1, 2 * r_mm * s);
+                ctx.beginPath();
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(B.x, B.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawLink(a, b, w, alpha) {
+                const A = toCanvas(a);
+                const B = toCanvas(b);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = w;
+                ctx.beginPath();
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(B.x, B.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawJoint(p, alpha) {
+                const P = toCanvas(p);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(P.x, P.y, Math.max(3, 5 * (window.devicePixelRatio || 1)), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // capsules (semi transparent)
+            drawCapsule(Hf, Kf, g.radii.r_ft, 0.18);
+            drawCapsule(Kf, Ff, g.radii.r_fs, 0.18);
+            drawCapsule(Hr, Kr, g.radii.r_rt, 0.18);
+            drawCapsule(Kr, Fr, g.radii.r_rs, 0.18);
+
+            // centerlines (more visible)
+            drawLink(Hf, Kf, 3, 0.55);
+            drawLink(Kf, Ff, 3, 0.55);
+            drawLink(Hr, Kr, 3, 0.55);
+            drawLink(Kr, Fr, 3, 0.55);
+
+            // joints
+            drawJoint(Hf, 0.9);
+            drawJoint(Kf, 0.8);
+            drawJoint(Hr, 0.9);
+            drawJoint(Kr, 0.8);
+
+            // labels
+            ctx.save();
+            ctx.fillStyle = "#ffffff";
+            ctx.globalAlpha = 0.7;
+            ctx.font = `${Math.max(12, 12 * (window.devicePixelRatio || 1))}px system-ui`;
+            const HfC = toCanvas(Hf);
+            const HrC = toCanvas(Hr);
+            ctx.fillText("Front hip", HfC.x + 8, HfC.y - 8);
+            ctx.fillText("Rear hip", HrC.x + 8, HrC.y - 8);
+            ctx.restore();
+
+            // pose info
+            poseInfo.textContent = `${g.side.toUpperCase()} | mode=${mode.toUpperCase()} | FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)}`;
+
+            const sideStatus = collisionStatus?.[mode]?.[g.side] || null;
+            let collisionTxt = "Collision: unknown";
+            if (sideStatus) {
+                const details = sideStatus.details || {};
+                const pair = details.pair || "?";
+                const d = Number(details.min_distance_mm);
+                const t = Number(details.threshold_mm);
+                const dTxt = Number.isFinite(d) ? d.toFixed(2) : "?";
+                const tTxt = Number.isFinite(t) ? t.toFixed(2) : "?";
+                collisionTxt = sideStatus.collides
+                    ? `Collision: YES (${pair}, d=${dTxt} <= ${tTxt})`
+                    : `Collision: no (${pair}, d=${dTxt} > ${tTxt})`;
+            }
+
+            overlay.textContent =
+                `Hip dx=${g.lengths.hip_dx.toFixed(1)}mm, hip y=${g.lengths.hip_y.toFixed(1)}mm • ` +
+                `Offsets: FH=${(dynVars[g.side].front_hip_offset_deg ?? 0).toFixed(1)} FK=${(dynVars[g.side].front_knee_offset_deg ?? 0).toFixed(1)} ` +
+                `RH=${(dynVars[g.side].rear_hip_offset_deg ?? 0).toFixed(1)} RK=${(dynVars[g.side].rear_knee_offset_deg ?? 0).toFixed(1)} • ` +
+                collisionTxt;
+
+        }
+
+        /* -------------------- Refresh (config) -------------------- */
+        async function refreshAnglesOnly() {
+            const resp = await api("/api/config");
+            if (!resp.ok) return;
+            hwAngles = resp.data.hw_angles || hwAngles;
+            simAngles = resp.data.sim_angles || simAngles;
+            dynVars = resp.data.dynamic_limits || dynVars;
+            collisionStatus = resp.data.collision_status || collisionStatus;
+            renderViz();
+        }
+
         async function refresh() {
             const resp = await api("/api/config");
             if (!resp.ok) {
@@ -857,6 +1609,10 @@
             locations = resp.data.locations;
             draft = resp.data.draft;
             availableChannels = resp.data.available_channels;
+            dynVars = resp.data.dynamic_limits;
+            hwAngles = resp.data.hw_angles || {};
+            simAngles = resp.data.sim_angles || {};
+            collisionStatus = resp.data.collision_status || null;
             setSaveResetEnabled(resp.data.save_enabled, resp.data.reset_enabled);
 
             const hw = document.getElementById("hw-status");
@@ -867,11 +1623,31 @@
                 hw.innerHTML = `Hardware: <span class="danger"><b>unavailable</b></span>${msg}`;
             }
 
+            // side radios from dyn vars
+            if (dynVars) {
+                setSideRadio(activeSide());
+                dlLastSentStr = JSON.stringify({ dynamic_limits: dynVars });
+                syncDynVarsInputs();
+                setDlStatus("Loaded", "muted");
+            }
+
+            await loadStances();
+
             renderControlBar();
             renderServoButtons();
             buildChannelSelectOptions();
             syncSelectedSidebar();
+
+            // restore angle input based on current mode
+            if (selectedLocation) {
+                applySelection(selectedLocation);
+            }
+
+            setModeRadios();
+            renderViz();
         }
+
+        /* -------------------- Events -------------------- */
 
         // Save / Reset
         document.getElementById("saveBtn").addEventListener("click", async () => {
@@ -952,15 +1728,81 @@
             await sendAngle(angle);
         });
 
+        document.getElementById("activateStanceBtn").addEventListener("click", async () => {
+            await activateStance();
+        });
+
         // Notes field: debounce save
         const notesArea = document.getElementById("notesArea");
         notesArea.addEventListener("input", scheduleNotesSave);
 
-        // Init
+        // Mode radios
+        document.getElementById("modeNormal").addEventListener("change", () => {
+            if (!document.getElementById("modeNormal").checked) return;
+            mode = "normal";
+            saveMode();
+            restoreUiToActualStateAfterModeSwitch();
+            setCmdStatus("Mode: Normal", "muted");
+        });
+        document.getElementById("modeTest").addEventListener("change", () => {
+            if (!document.getElementById("modeTest").checked) return;
+            mode = "test";
+            saveMode();
+            restoreUiToActualStateAfterModeSwitch();
+            setCmdStatus("Mode: Test (no PWM; sim state walks)", "muted");
+        });
+
+        // Side radios
+        document.getElementById("sideLeft").addEventListener("change", () => {
+            if (!document.getElementById("sideLeft").checked) return;
+            if (!dynVars) return;
+            dynVars.active_side = "left";
+            syncDynVarsInputs();
+            scheduleDynVarsSave();
+            renderViz();
+        });
+
+        document.getElementById("sideRight").addEventListener("change", () => {
+            if (!document.getElementById("sideRight").checked) return;
+            if (!dynVars) return;
+            dynVars.active_side = "right";
+            syncDynVarsInputs();
+            scheduleDynVarsSave();
+            renderViz();
+        });
+
+        // Dynamic vars inputs change handlers (debounced save)
+        [
+            "dl_step", "dl_iters",
+            "dl_hip_dx", "dl_hip_y",
+            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr",
+            "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
+            "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
+        ].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener("input", () => {
+                scheduleDynVarsSave();
+            });
+            el.addEventListener("change", () => {
+                scheduleDynVarsSave();
+            });
+        });
+
+        // Canvas resize redraw
+        window.addEventListener("resize", () => renderViz());
+
+        /* -------------------- Init -------------------- */
+        function initModeRadios() {
+            setModeRadios();
+            setCmdStatus(mode === "test" ? "Mode: Test (no PWM; sim state walks)" : "Mode: Normal", "muted");
+        }
+
         loadLastAngles();
         loadHotkeys();
+        loadMode();
         syncHotkeyInputs();
         attachHotkeyInputHandlers();
+        initModeRadios();
         setAngleInput(0);
 
         refresh();

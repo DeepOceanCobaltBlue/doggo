@@ -132,7 +132,8 @@
             border: 1px solid rgba(255, 255, 255, .12);
         }
 
-        input[type="number"] {
+        input[type="number"],
+        input[type="text"] {
             width: 100%;
             padding: 10px;
             border-radius: 12px;
@@ -198,7 +199,14 @@
 
             <div class="row">
                 <button class="primary" id="btnLoadConfig">Load Config</button>
-                <button class="primary" id="btnLoadProgram">Load Program (stub)</button>
+                <button class="primary" id="btnLoadProgram">Load Program</button>
+            </div>
+
+            <div class="row">
+                <div style="flex:1;">
+                    <div class="muted">program</div>
+                    <input id="inpProgram" type="text" placeholder="default_stance.npz" />
+                </div>
             </div>
 
             <div class="row">
@@ -369,8 +377,9 @@
         });
 
         document.getElementById("btnLoadProgram").addEventListener("click", async () => {
-            // Still stubbed in backend for now.
-            const resp = await api("/api/load_program", "POST", { "num_frames": 200 });
+            const raw = String(document.getElementById("inpProgram").value || "").trim();
+            const program = raw || "default_stance.npz";
+            const resp = await api("/api/load_program", "POST", { program });
             log(`POST /api/load_program -> ${resp.status} ${resp.data.message || ""}`);
             renderStatus(resp.data.status || resp.data);
         });

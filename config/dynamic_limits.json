@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "active_side": "left",
+  "search_step_deg": 1,
+  "search_max_iters": 300,
+  "left": {
+    "hip_dx_mm": 85.0,
+    "hip_y_mm": 65.0,
+    "thigh_len_front_mm": 70.0,
+    "shin_len_front_mm": 90.0,
+    "thigh_len_rear_mm": 70.0,
+    "shin_len_rear_mm": 90.0,
+    "front_thigh_radius_mm": 7.0,
+    "front_shin_radius_mm": 7.0,
+    "rear_thigh_radius_mm": 7.0,
+    "rear_shin_radius_mm": 7.0,
+    "front_hip_offset_deg": 0.0,
+    "front_knee_offset_deg": 0.0,
+    "rear_hip_offset_deg": 0.0,
+    "rear_knee_offset_deg": 0.0
+  },
+  "right": {
+    "hip_dx_mm": 85.0,
+    "hip_y_mm": 65.0,
+    "thigh_len_front_mm": 70.0,
+    "shin_len_front_mm": 90.0,
+    "thigh_len_rear_mm": 70.0,
+    "shin_len_rear_mm": 90.0,
+    "front_thigh_radius_mm": 7.0,
+    "front_shin_radius_mm": 7.0,
+    "rear_thigh_radius_mm": 7.0,
+    "rear_shin_radius_mm": 7.0,
+    "front_hip_offset_deg": 0.0,
+    "front_knee_offset_deg": 0.0,
+    "rear_hip_offset_deg": 0.0,
+    "rear_knee_offset_deg": 0.0
+  }
+}

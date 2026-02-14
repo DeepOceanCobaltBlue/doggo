@@ -18,6 +18,10 @@ from program_loader_npz import load_program_npz, LoadedProgram as NPZProgram
 # -----------------------------
 SLICE_PERIOD_MS_DEFAULT = 40         # you will tune this
 OVERRUN_WARN_MS_DEFAULT = 1.0        # you will tune this
+SLICE_PERIOD_MS_MIN = 1.0
+SLICE_PERIOD_MS_MAX = 5000.0
+OVERRUN_WARN_MS_MIN = 0.0
+OVERRUN_WARN_MS_MAX = 5000.0
 
 I2C_BUS = 1
 I2C_ADDR = 0x40
@@ -473,11 +477,37 @@ def api_settings():
       { "slice_period_ms": <float>, "overrun_warn_ms": <float> }
     """
     data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    updates: Dict[str, float] = {}
+    if "slice_period_ms" in data:
+        try:
+            slice_period_ms = float(data["slice_period_ms"])
+        except Exception:
+            return jsonify({"ok": False, "error": "slice_period_ms must be a number"}), 400
+        if not (SLICE_PERIOD_MS_MIN <= slice_period_ms <= SLICE_PERIOD_MS_MAX):
+            return jsonify(
+                {"ok": False, "error": f"slice_period_ms out of range {SLICE_PERIOD_MS_MIN}..{SLICE_PERIOD_MS_MAX}"}
+            ), 400
+        updates["slice_period_ms"] = slice_period_ms
+
+    if "overrun_warn_ms" in data:
+        try:
+            overrun_warn_ms = float(data["overrun_warn_ms"])
+        except Exception:
+            return jsonify({"ok": False, "error": "overrun_warn_ms must be a number"}), 400
+        if not (OVERRUN_WARN_MS_MIN <= overrun_warn_ms <= OVERRUN_WARN_MS_MAX):
+            return jsonify(
+                {"ok": False, "error": f"overrun_warn_ms out of range {OVERRUN_WARN_MS_MIN}..{OVERRUN_WARN_MS_MAX}"}
+            ), 400
+        updates["overrun_warn_ms"] = overrun_warn_ms
+
     with state._lock:
-        if "slice_period_ms" in data:
-            state.slice_period_ms = float(data["slice_period_ms"])
-        if "overrun_warn_ms" in data:
-            state.overrun_warn_ms = float(data["overrun_warn_ms"])
+        if "slice_period_ms" in updates:
+            state.slice_period_ms = updates["slice_period_ms"]
+        if "overrun_warn_ms" in updates:
+            state.overrun_warn_ms = updates["overrun_warn_ms"]
     return jsonify({"ok": True, "status": state.status()})
 
 
