@@ -32,7 +32,7 @@
         .wrap {
             display: grid;
             grid-template-columns: 1fr 380px;
-            grid-template-rows: 1fr 190px;
+            grid-template-rows: 1fr 260px;
             height: 100vh;
             gap: 12px;
             padding: 12px;
@@ -66,7 +66,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            overflow: hidden;
+            overflow: auto;
         }
 
         .card {
@@ -608,6 +608,15 @@
                 </div>
             </div>
 
+            <div class="sidebarSection">
+                <div class="sectionTitle">Stances</div>
+                <div class="muted">Select a stance file from <code>stances/</code> and activate it.</div>
+                <div class="row">
+                    <select id="stanceSelect"></select>
+                    <button id="activateStanceBtn" class="primary">Activate</button>
+                </div>
+            </div>
+
             <div class="muted">
                 Limits apply when you send commands in this app and will be saved to
                 <code>config/config_file.json</code>.
@@ -692,11 +701,6 @@
                 </div>
 
                 <div class="hotkeys" id="hotkeyButtons"></div>
-
-                <div class="row">
-                    <select id="stanceSelect" style="min-width:180px;"></select>
-                    <button id="activateStanceBtn" class="primary">Activate</button>
-                </div>
 
                 <div class="muted" id="cmdStatus">—</div>
             </div>
@@ -1034,9 +1038,11 @@
 
             const applied = clampInt(toInt(resp.data.applied_angle, angle), 0, 270);
 
-            // Keep UI consistent with what actually happened
-            setAngleInput(applied);
-            lastAngles[selectedLocation] = applied;
+            // In test mode, keep the typed logical angle in the input so repeated sends do not
+            // bounce between mirrored values when invert is enabled.
+            const displayAngle = (mode === "test") ? angle : applied;
+            setAngleInput(displayAngle);
+            lastAngles[selectedLocation] = displayAngle;
             saveLastAngles();
 
             // Refresh state angles from response path:
@@ -1133,6 +1139,15 @@
                     await sendAngle(v);
                 });
                 host.appendChild(b);
+            });
+        }
+
+        function attachSelectOverwrite(ids) {
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener("focus", () => el.select());
+                el.addEventListener("click", () => el.select());
             });
         }
 
@@ -1353,7 +1368,7 @@
 
         function unitFromAngleDeg(deg) {
             const r = degToRad(deg);
-            return { x: Math.cos(r), y: Math.sin(r) };
+            return { x: Math.cos(r), y: -Math.sin(r) };
         }
 
         function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
@@ -1800,6 +1815,13 @@
         loadLastAngles();
         loadHotkeys();
         loadMode();
+        attachSelectOverwrite([
+            "dl_step", "dl_iters",
+            "dl_hip_dx", "dl_hip_y",
+            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr",
+            "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
+            "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
+        ]);
         syncHotkeyInputs();
         attachHotkeyInputHandlers();
         initModeRadios();

@@ -432,7 +432,8 @@ def _deg_to_rad(deg: float) -> float:
 
 def _unit_from_angle_deg(deg: float) -> Tuple[float, float]:
     r = _deg_to_rad(deg)
-    return (math.cos(r), math.sin(r))
+    # Screen/robot convention: positive angle rotates clockwise in x-right, y-up model.
+    return (math.cos(r), -math.sin(r))
 
 
 def _pt_add(a: Tuple[float, float], b: Tuple[float, float]) -> Tuple[float, float]:
