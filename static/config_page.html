@@ -1038,9 +1038,9 @@
 
             const applied = clampInt(toInt(resp.data.applied_angle, angle), 0, 270);
 
-            // In test mode, keep the typed logical angle in the input so repeated sends do not
-            // bounce between mirrored values when invert is enabled.
-            const displayAngle = (mode === "test") ? angle : applied;
+            // Keep typed logical angle in the input so repeated sends do not bounce
+            // between mirrored values when invert is enabled.
+            const displayAngle = angle;
             setAngleInput(displayAngle);
             lastAngles[selectedLocation] = displayAngle;
             saveLastAngles();
