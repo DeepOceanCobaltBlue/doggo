@@ -810,10 +810,13 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
     if deg_max < deg_min:
         deg_min, deg_max = deg_max, deg_min
 
-    travel_applied = _clamp_int(int(requested), deg_min, deg_max)
+    # Travel mapping contract:
+    # - optional global invert (270-angle), independent of clamp window width
+    # - clamp to configured window after mapping
+    travel_applied = int(requested)
     if limits.invert:
-        travel_applied = deg_max - (travel_applied - deg_min)
-        travel_applied = _clamp_int(int(travel_applied), deg_min, deg_max)
+        travel_applied = ANGLE_MAX_DEG - travel_applied
+    travel_applied = _clamp_int(int(travel_applied), deg_min, deg_max)
 
     # Decide which state we're walking against for step search
     state_angles = _sim_angles if mode == "test" else _hw_angles

@@ -136,6 +136,46 @@ class ConfigApiContracts(unittest.TestCase):
             restore = client.post("/api/dynamic_limits", json={"dynamic_limits": original})
             self.assertEqual(restore.status_code, 200)
 
+    def test_invert_neutral_stays_stable_across_clamp_window_changes(self) -> None:
+        client = self.config_app.app.test_client()
+        cfg = client.get("/api/config").get_json()
+        original_limits = dict(cfg["draft"]["locations"]["front_left_knee"]["limits"])
+        loc = "front_left_knee"
+
+        try:
+            r1 = client.post(
+                "/api/limits",
+                json={"location": loc, "deg_min": 30, "deg_max": 180, "invert": True},
+            )
+            self.assertEqual(r1.status_code, 200)
+            c1 = client.post("/api/command", json={"location": loc, "angle_deg": 135, "mode": "test"})
+            self.assertEqual(c1.status_code, 200)
+            d1 = c1.get_json()
+
+            r2 = client.post(
+                "/api/limits",
+                json={"location": loc, "deg_min": 60, "deg_max": 210, "invert": True},
+            )
+            self.assertEqual(r2.status_code, 200)
+            c2 = client.post("/api/command", json={"location": loc, "angle_deg": 135, "mode": "test"})
+            self.assertEqual(c2.status_code, 200)
+            d2 = c2.get_json()
+
+            self.assertEqual(d1["travel_applied_angle"], 135)
+            self.assertEqual(d2["travel_applied_angle"], 135)
+            self.assertEqual(d1["travel_applied_angle"], d2["travel_applied_angle"])
+        finally:
+            restore = client.post(
+                "/api/limits",
+                json={
+                    "location": loc,
+                    "deg_min": original_limits["deg_min"],
+                    "deg_max": original_limits["deg_max"],
+                    "invert": original_limits["invert"],
+                },
+            )
+            self.assertEqual(restore.status_code, 200)
+
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
 class HubApiContracts(unittest.TestCase):
