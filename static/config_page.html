@@ -640,6 +640,16 @@
                         <input id="geoToeRear" type="text" value="—" readonly />
                     </div>
                 </div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Front thigh vs shin</label>
+                        <input id="geoRelFront" type="text" value="—" readonly />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear thigh vs shin</label>
+                        <input id="geoRelRear" type="text" value="—" readonly />
+                    </div>
+                </div>
             </div>
 
             <div class="muted">
@@ -1557,6 +1567,8 @@
                 setGeoReadout("geoHipRear", NaN);
                 setGeoReadout("geoToeFront", NaN);
                 setGeoReadout("geoToeRear", NaN);
+                setGeoReadout("geoRelFront", NaN);
+                setGeoReadout("geoRelRear", NaN);
                 return;
             }
 
@@ -1701,9 +1713,7 @@
             poseInfo.textContent =
                 `${g.side.toUpperCase()} | mode=${mode.toUpperCase()} | ` +
                 `FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} ` +
-                `RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)} | ` +
-                `Front thigh-shin=${g.relative.front_deg.toFixed(1)}deg ` +
-                `Rear thigh-shin=${g.relative.rear_deg.toFixed(1)}deg`;
+                `RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)}`;
 
             const sideStatus = collisionStatus?.[mode]?.[g.side] || null;
             let collisionTxt = "Collision: unknown";
@@ -1729,6 +1739,8 @@
             setGeoReadout("geoHipRear", g.baselines.hip_vs_rear_thigh_deg);
             setGeoReadout("geoToeFront", g.baselines.toe_vs_front_shin_deg);
             setGeoReadout("geoToeRear", g.baselines.toe_vs_rear_shin_deg);
+            setGeoReadout("geoRelFront", g.relative.front_deg);
+            setGeoReadout("geoRelRear", g.relative.rear_deg);
 
         }
 
