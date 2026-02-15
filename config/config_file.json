@@ -1,69 +1,69 @@
 {
-    "version": 2,
-    "locations": {
-        "front_left_hip": {
-            "channel": 7,
-            "limits": {
-                "deg_min": 105,
-                "deg_max": 270,
-                "invert": true
-            }
-        },
-        "front_left_knee": {
-            "channel": 4,
-            "limits": {
-                "deg_min": 30,
-                "deg_max": 180,
-                "invert": false
-            }
-        },
-        "front_right_hip": {
-            "channel": 8,
-            "limits": {
-                "deg_min": 100,
-                "deg_max": 270,
-                "invert": false
-            }
-        },
-        "front_right_knee": {
-            "channel": 6,
-            "limits": {
-                "deg_min": 30,
-                "deg_max": 180,
-                "invert": true
-            }
-        },
-        "rear_left_hip": {
-            "channel": 0,
-            "limits": {
-                "deg_min": 60,
-                "deg_max": 190,
-                "invert": true
-            }
-        },
-        "rear_left_knee": {
-            "channel": 14,
-            "limits": {
-                "deg_min": 30,
-                "deg_max": 180,
-                "invert": false
-            }
-        },
-        "rear_right_hip": {
-            "channel": 1,
-            "limits": {
-                "deg_min": 45,
-                "deg_max": 190,
-                "invert": false
-            }
-        },
-        "rear_right_knee": {
-            "channel": 15,
-            "limits": {
-                "deg_min": 30,
-                "deg_max": 180,
-                "invert": true
-            }
-        }
+  "version": 2,
+  "locations": {
+    "front_left_hip": {
+      "channel": 7,
+      "limits": {
+        "deg_min": 105,
+        "deg_max": 270,
+        "invert": true
+      }
+    },
+    "front_left_knee": {
+      "channel": 4,
+      "limits": {
+        "deg_min": 30,
+        "deg_max": 180,
+        "invert": false
+      }
+    },
+    "front_right_hip": {
+      "channel": 8,
+      "limits": {
+        "deg_min": 100,
+        "deg_max": 270,
+        "invert": false
+      }
+    },
+    "front_right_knee": {
+      "channel": 5,
+      "limits": {
+        "deg_min": 20,
+        "deg_max": 180,
+        "invert": true
+      }
+    },
+    "rear_left_hip": {
+      "channel": 0,
+      "limits": {
+        "deg_min": 60,
+        "deg_max": 190,
+        "invert": true
+      }
+    },
+    "rear_left_knee": {
+      "channel": 14,
+      "limits": {
+        "deg_min": 30,
+        "deg_max": 180,
+        "invert": false
+      }
+    },
+    "rear_right_hip": {
+      "channel": 1,
+      "limits": {
+        "deg_min": 45,
+        "deg_max": 190,
+        "invert": false
+      }
+    },
+    "rear_right_knee": {
+      "channel": 15,
+      "limits": {
+        "deg_min": 30,
+        "deg_max": 180,
+        "invert": true
+      }
     }
+  }
 }
