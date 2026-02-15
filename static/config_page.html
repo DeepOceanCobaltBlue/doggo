@@ -1367,7 +1367,9 @@
 
         function unitFromAngleDeg(deg) {
             const r = degToRad(deg);
-            return { x: Math.cos(r), y: -Math.sin(r) };
+            // Keep frontend kinematics aligned with backend collision math:
+            // 0 deg points rear, 180 deg points front, positive rotates clockwise.
+            return { x: -Math.cos(r), y: -Math.sin(r) };
         }
 
         function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }

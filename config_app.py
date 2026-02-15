@@ -432,8 +432,12 @@ def _deg_to_rad(deg: float) -> float:
 
 def _unit_from_angle_deg(deg: float) -> Tuple[float, float]:
     r = _deg_to_rad(deg)
-    # Screen/robot convention: positive angle rotates clockwise in x-right, y-up model.
-    return (math.cos(r), -math.sin(r))
+    # Simulation convention:
+    # - +x is robot-front, +y is up.
+    # - 0 deg points toward robot-rear, 180 deg toward robot-front.
+    # - Positive angle rotates clockwise.
+    # This matches the command contract: increasing angle drives segments toward front.
+    return (-math.cos(r), -math.sin(r))
 
 
 def _pt_add(a: Tuple[float, float], b: Tuple[float, float]) -> Tuple[float, float]:

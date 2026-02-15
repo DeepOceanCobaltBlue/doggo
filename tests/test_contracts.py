@@ -248,6 +248,14 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertEqual(pack["rear_hip"], 120.0)
         self.assertEqual(pack["rear_knee"], 100.0)
 
+    def test_sim_direction_increasing_angle_moves_toward_front(self) -> None:
+        module = self.config_app
+        x0, _ = module._unit_from_angle_deg(0)
+        x90, _ = module._unit_from_angle_deg(90)
+        x180, _ = module._unit_from_angle_deg(180)
+        self.assertLess(x0, x90)
+        self.assertLess(x90, x180)
+
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
 class HubApiContracts(unittest.TestCase):
