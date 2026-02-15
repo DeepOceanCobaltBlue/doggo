@@ -1375,19 +1375,29 @@
 
         function getSideAngles(side, state) {
             const s = state || {};
+            const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
+            function physicalForViz(locKey, logicalAngle) {
+                const lim = locLimits(locKey);
+                const raw = clampInt(toInt(logicalAngle, 135), 0, 270);
+                let lo = clampInt(toInt(lim.deg_min, 0), 0, 270);
+                let hi = clampInt(toInt(lim.deg_max, 270), 0, 270);
+                if (hi < lo) { const t = lo; lo = hi; hi = t; }
+                const logical = clampInt(raw, lo, hi);
+                return (lim.invert === true) ? (270 - logical) : logical;
+            }
             if (side === "right") {
                 return {
-                    front_hip: s.front_right_hip ?? 135,
-                    front_knee: s.front_right_knee ?? 135,
-                    rear_hip: s.rear_right_hip ?? 135,
-                    rear_knee: s.rear_right_knee ?? 135,
+                    front_hip: physicalForViz("front_right_hip", s.front_right_hip),
+                    front_knee: physicalForViz("front_right_knee", s.front_right_knee),
+                    rear_hip: physicalForViz("rear_right_hip", s.rear_right_hip),
+                    rear_knee: physicalForViz("rear_right_knee", s.rear_right_knee),
                 };
             }
             return {
-                front_hip: s.front_left_hip ?? 135,
-                front_knee: s.front_left_knee ?? 135,
-                rear_hip: s.rear_left_hip ?? 135,
-                rear_knee: s.rear_left_knee ?? 135,
+                front_hip: physicalForViz("front_left_hip", s.front_left_hip),
+                front_knee: physicalForViz("front_left_knee", s.front_left_knee),
+                rear_hip: physicalForViz("rear_left_hip", s.rear_left_hip),
+                rear_knee: physicalForViz("rear_left_knee", s.rear_left_knee),
             };
         }
 

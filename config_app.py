@@ -10,7 +10,7 @@ from typing import Dict, Optional, List, Any, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from hardware.pca9685 import PCA9685, ServoLimits
+from hardware.pca9685 import PCA9685, ServoLimits, resolve_logical_and_physical_angle
 
 
 # -----------------------------
@@ -629,23 +629,35 @@ def _build_leg_capsules_for_side(
     return front_caps, rear_caps
 
 
+def _effective_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
+    """
+    Convert stored logical state angle to physical simulation angle.
+    High-level command logic stays inversion-agnostic; simulation/collision
+    reflects the actual servo output orientation.
+    """
+    raw = int(state_angles.get(loc_key, 135))
+    limits = _get_limits(_draft_cfg, loc_key)
+    _, physical = resolve_logical_and_physical_angle(raw, limits)
+    return float(physical)
+
+
 def _angles_pack_for_side_from_state(side: str, state_angles: Dict[str, int]) -> Dict[str, float]:
     """
     Extract 4 joint angles for the side from the full location-key->angle dict.
     """
     if side == "left":
         return {
-            "front_hip": float(state_angles.get("front_left_hip", 135)),
-            "front_knee": float(state_angles.get("front_left_knee", 135)),
-            "rear_hip": float(state_angles.get("rear_left_hip", 135)),
-            "rear_knee": float(state_angles.get("rear_left_knee", 135)),
+            "front_hip": _effective_sim_angle_from_state("front_left_hip", state_angles),
+            "front_knee": _effective_sim_angle_from_state("front_left_knee", state_angles),
+            "rear_hip": _effective_sim_angle_from_state("rear_left_hip", state_angles),
+            "rear_knee": _effective_sim_angle_from_state("rear_left_knee", state_angles),
         }
     else:
         return {
-            "front_hip": float(state_angles.get("front_right_hip", 135)),
-            "front_knee": float(state_angles.get("front_right_knee", 135)),
-            "rear_hip": float(state_angles.get("rear_right_hip", 135)),
-            "rear_knee": float(state_angles.get("rear_right_knee", 135)),
+            "front_hip": _effective_sim_angle_from_state("front_right_hip", state_angles),
+            "front_knee": _effective_sim_angle_from_state("front_right_knee", state_angles),
+            "rear_hip": _effective_sim_angle_from_state("rear_right_hip", state_angles),
+            "rear_knee": _effective_sim_angle_from_state("rear_right_knee", state_angles),
         }
 
 

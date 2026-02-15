@@ -234,6 +234,20 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertEqual(logical2, 180)
         self.assertEqual(physical2, 180)
 
+    def test_sim_pack_uses_physical_angles_for_inverted_joints(self) -> None:
+        module = self.config_app
+        state = {
+            "front_right_hip": 100,
+            "front_right_knee": 180,  # invert=true in default config
+            "rear_right_hip": 120,
+            "rear_right_knee": 170,   # invert=true in default config
+        }
+        pack = module._angles_pack_for_side_from_state("right", state)
+        self.assertEqual(pack["front_hip"], 100.0)
+        self.assertEqual(pack["front_knee"], 90.0)
+        self.assertEqual(pack["rear_hip"], 120.0)
+        self.assertEqual(pack["rear_knee"], 100.0)
+
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
 class HubApiContracts(unittest.TestCase):
