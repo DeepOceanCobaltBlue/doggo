@@ -1380,6 +1380,18 @@
 
         function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
         function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
+        function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        function segmentRelativeDeg(a, b, c) {
+            // Relative angle between segments AB (thigh) and BC (shin), as line angle 0..180.
+            const ux = b.x - a.x, uy = b.y - a.y;
+            const vx = c.x - b.x, vy = c.y - b.y;
+            const un = Math.hypot(ux, uy);
+            const vn = Math.hypot(vx, vy);
+            if (un < 1e-9 || vn < 1e-9) return 0;
+            const dot = (ux * vx + uy * vy) / (un * vn);
+            return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
+        }
 
         function getSideAngles(side, state) {
             const s = state || {};
@@ -1457,11 +1469,15 @@
             const vr = unitFromKneeAngleDeg(a_rk);
             const Fr = add(Kr, mul(vr, Lsr));
 
+            const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
+            const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
+
             return {
                 side,
                 anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
                 angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
                 simAngles: { a_fh, a_fk, a_rh, a_rk },
+                relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
                 lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr },
                 radii: { r_ft, r_fs, r_rt, r_rs },
             };
@@ -1598,7 +1614,12 @@
             ctx.restore();
 
             // pose info
-            poseInfo.textContent = `${g.side.toUpperCase()} | mode=${mode.toUpperCase()} | FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)}`;
+            poseInfo.textContent =
+                `${g.side.toUpperCase()} | mode=${mode.toUpperCase()} | ` +
+                `FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} ` +
+                `RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)} | ` +
+                `Front thigh-shin=${g.relative.front_deg.toFixed(1)}deg ` +
+                `Rear thigh-shin=${g.relative.rear_deg.toFixed(1)}deg`;
 
             const sideStatus = collisionStatus?.[mode]?.[g.side] || null;
             let collisionTxt = "Collision: unknown";
