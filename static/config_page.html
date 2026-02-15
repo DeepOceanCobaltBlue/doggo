@@ -1038,9 +1038,8 @@
 
             const applied = clampInt(toInt(resp.data.applied_angle, angle), 0, 270);
 
-            // Keep typed logical angle in the input so repeated sends do not bounce
-            // between mirrored values when invert is enabled.
-            const displayAngle = angle;
+            // Reflect the actual logical angle applied by the backend clamp pipeline.
+            const displayAngle = applied;
             setAngleInput(displayAngle);
             lastAngles[selectedLocation] = displayAngle;
             saveLastAngles();

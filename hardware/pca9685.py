@@ -34,8 +34,8 @@ class ServoPulseRange:
 class ServoLimits:
     """
     Per-servo clamp and direction settings, in logical degree-space (0..270).
-    - deg_min/deg_max clamp the commanded angle
-    - invert flips direction inside the clamp range
+    - deg_min/deg_max clamp the logical commanded angle
+    - invert flips output direction after logical clamping
     """
     deg_min: int = 0
     deg_max: int = 270
@@ -44,6 +44,28 @@ class ServoLimits:
 
 def _clamp_int(x: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, x))
+
+
+def resolve_logical_and_physical_angle(angle_deg: int, limits: ServoLimits) -> tuple[int, int]:
+    """
+    Resolve a requested logical command into:
+      (logical_clamped_angle, physical_output_angle)
+
+    Contract:
+    - Clamp always happens in logical space (invert-agnostic).
+    - Invert is applied only to physical output.
+    """
+    requested = _clamp_int(int(angle_deg), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+
+    deg_min = _clamp_int(int(limits.deg_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+    deg_max = _clamp_int(int(limits.deg_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+    if deg_max < deg_min:
+        deg_min, deg_max = deg_max, deg_min
+
+    logical = _clamp_int(requested, deg_min, deg_max)
+    physical = (ANGLE_MAX_DEG - logical) if bool(limits.invert) else logical
+    physical = _clamp_int(physical, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+    return logical, physical
 
 
 class PCA9685:
@@ -97,38 +119,17 @@ class PCA9685:
 
     def set_channel_angle_deg(self, channel: int, angle_deg: int, limits: Optional[ServoLimits] = None) -> None:
         """
-        Clamp/invert in degree space, map to pulse_us using GLOBAL logical domain (0..270),
-        then write PWM.
+        Resolve logical command -> physical output angle, then map to pulse_us and write PWM.
 
         IMPORTANT:
         - Mapping is always global (0..270). Limits do NOT rescale mapping.
-        - Invert is global (angle -> 270-angle), not relative to clamp window.
-        - When inverted, the clamp window is also inverted so the allowed physical window remains consistent.
+        - Clamp is logical and invert-agnostic.
+        - Invert is applied only at the final output angle.
         """
         channel = _clamp_int(int(channel), 0, 15)
 
         eff_limits = limits or self.channel_limits.get(channel) or self.default_limits
-
-        # Normalize requested angle into global domain first
-        angle_deg = _clamp_int(int(angle_deg), 0, 270)
-
-        # Read clamp window (global domain)
-        deg_min = _clamp_int(int(eff_limits.deg_min), 0, 270)
-        deg_max = _clamp_int(int(eff_limits.deg_max), 0, 270)
-        if deg_max < deg_min:
-            deg_min, deg_max = deg_max, deg_min
-
-        # Global invert (no dependence on deg_min/deg_max)
-        if eff_limits.invert:
-            angle_deg = 270 - angle_deg
-
-            # Invert the clamp window too so the allowed physical range stays the same
-            inv_min = 270 - deg_max
-            inv_max = 270 - deg_min
-            deg_min, deg_max = (inv_min, inv_max) if inv_min <= inv_max else (inv_max, inv_min)
-
-        # Pure clamp (no rescale, no window-relative transforms)
-        angle_deg = _clamp_int(angle_deg, deg_min, deg_max)
+        _, angle_deg = resolve_logical_and_physical_angle(int(angle_deg), eff_limits)
 
         # Global mapping (stable)
         t = angle_deg / 270.0

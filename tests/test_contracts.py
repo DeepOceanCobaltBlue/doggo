@@ -46,6 +46,7 @@ class ConfigApiContracts(unittest.TestCase):
             sys.modules["smbus2"] = fake
 
         cls.config_app = importlib.import_module("config_app")
+        cls.pca_mod = importlib.import_module("hardware.pca9685")
 
     def test_config_api_exposes_dynamic_limits_key(self) -> None:
         client = self.config_app.app.test_client()
@@ -175,6 +176,63 @@ class ConfigApiContracts(unittest.TestCase):
                 },
             )
             self.assertEqual(restore.status_code, 200)
+
+    def test_invert_keeps_test_mode_travel_clamp_logical(self) -> None:
+        client = self.config_app.app.test_client()
+        # front_right_knee is invert=true with deg_max=180 in default config.
+        cmd = client.post(
+            "/api/command",
+            json={"location": "front_right_knee", "angle_deg": 250, "mode": "test"},
+        )
+        self.assertEqual(cmd.status_code, 200)
+        data = cmd.get_json()
+        self.assertEqual(data["requested_angle"], 250)
+        self.assertEqual(data["travel_applied_angle"], 180)
+
+    def test_normal_mode_delegates_invert_to_hardware_layer(self) -> None:
+        client = self.config_app.app.test_client()
+        module = self.config_app
+
+        class _StubPCA:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def set_channel_angle_deg(self, channel, angle_deg, limits=None):  # pragma: no cover - assertion target
+                self.calls.append((channel, angle_deg, limits))
+
+        original_pca = module.pca
+        stub = _StubPCA()
+        module.pca = stub
+        try:
+            cmd = client.post(
+                "/api/command",
+                json={"location": "front_right_knee", "angle_deg": 250, "mode": "normal"},
+            )
+            self.assertEqual(cmd.status_code, 200)
+            data = cmd.get_json()
+            self.assertEqual(data["travel_applied_angle"], 180)
+            self.assertEqual(len(stub.calls), 1)
+
+            ch, angle_sent, limits = stub.calls[0]
+            self.assertEqual(ch, 6)
+            self.assertEqual(angle_sent, data["applied_angle"])
+            self.assertIsNotNone(limits)
+            self.assertTrue(limits.invert)
+            self.assertEqual(int(limits.deg_min), 30)
+            self.assertEqual(int(limits.deg_max), 180)
+        finally:
+            module.pca = original_pca
+
+    def test_driver_resolve_logical_then_invert_output(self) -> None:
+        limits_inv = self.pca_mod.ServoLimits(deg_min=30, deg_max=180, invert=True)
+        logical, physical = self.pca_mod.resolve_logical_and_physical_angle(250, limits_inv)
+        self.assertEqual(logical, 180)
+        self.assertEqual(physical, 90)
+
+        limits_noninv = self.pca_mod.ServoLimits(deg_min=30, deg_max=180, invert=False)
+        logical2, physical2 = self.pca_mod.resolve_logical_and_physical_angle(250, limits_noninv)
+        self.assertEqual(logical2, 180)
+        self.assertEqual(physical2, 180)
 
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")

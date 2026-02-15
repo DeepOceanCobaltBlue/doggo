@@ -803,20 +803,14 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
 
     requested = _clamp_int(int(requested_angle), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
 
-    # Apply travel clamp/invert (in degree space) using ServoLimits
+    # Apply travel clamp in logical degree space (invert-agnostic)
     limits = _get_limits(_draft_cfg, loc_key)
     deg_min = _clamp_int(int(limits.deg_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
     deg_max = _clamp_int(int(limits.deg_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
     if deg_max < deg_min:
         deg_min, deg_max = deg_max, deg_min
 
-    # Travel mapping contract:
-    # - optional global invert (270-angle), independent of clamp window width
-    # - clamp to configured window after mapping
-    travel_applied = int(requested)
-    if limits.invert:
-        travel_applied = ANGLE_MAX_DEG - travel_applied
-    travel_applied = _clamp_int(int(travel_applied), deg_min, deg_max)
+    travel_applied = _clamp_int(int(requested), deg_min, deg_max)
 
     # Decide which state we're walking against for step search
     state_angles = _sim_angles if mode == "test" else _hw_angles
@@ -849,7 +843,8 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
             return False, {"ok": False, "error": "Hardware not available (PCA9685 init failed)."}, 503
 
         try:
-            pca.set_channel_angle_deg(int(ch), int(applied))
+            # Keep high-level logic inversion-agnostic; hardware output handles invert.
+            pca.set_channel_angle_deg(int(ch), int(applied), limits=limits)
         except Exception as e:
             return False, {"ok": False, "error": f"Hardware command failed: {e}"}, 503
         _hw_angles[loc_key] = int(applied)
@@ -1190,10 +1185,10 @@ def api_command():
       }
 
     Behavior:
-      - Always applies travel clamp/invert (ServoLimits)
+      - Always applies logical travel clamp (ServoLimits window)
       - Always applies collision clamp (capsule model + step search)
-      - In test mode: does NOT send PWM, but updates sim state (walk)
-      - In normal mode: sends PWM (requires PCA), updates hw state
+      - In test mode: does NOT send PWM, but updates sim state (invert-agnostic)
+      - In normal mode: sends PWM (requires PCA); hardware layer applies invert
       - Returns applied_angle; UI should update input field to it
     """
     data = request.get_json(force=True)
