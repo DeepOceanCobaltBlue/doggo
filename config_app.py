@@ -440,6 +440,15 @@ def _unit_from_angle_deg(deg: float) -> Tuple[float, float]:
     return (-math.cos(r), -math.sin(r))
 
 
+def _unit_from_knee_angle_deg(deg: float) -> Tuple[float, float]:
+    """
+    Knee joints use opposite winding from hips in the sim model.
+    Keep the same front/back convention (x axis), but flip angular winding.
+    """
+    r = _deg_to_rad(deg)
+    return (-math.cos(r), math.sin(r))
+
+
 def _pt_add(a: Tuple[float, float], b: Tuple[float, float]) -> Tuple[float, float]:
     return (a[0] + b[0], a[1] + b[1])
 
@@ -611,15 +620,15 @@ def _build_leg_capsules_for_side(
     # FRONT: hip -> knee
     uf = _unit_from_angle_deg(a_f_hip)
     Kf = _pt_add(Hf, _pt_mul(uf, Ltf))
-    # FRONT: knee -> foot
-    vf = _unit_from_angle_deg(a_f_knee)
+    # FRONT: knee -> foot (knee winding differs from hip winding)
+    vf = _unit_from_knee_angle_deg(a_f_knee)
     Ff = _pt_add(Kf, _pt_mul(vf, Lsf))
 
     # REAR: hip -> knee
     ur = _unit_from_angle_deg(a_r_hip)
     Kr = _pt_add(Hr, _pt_mul(ur, Ltr))
-    # REAR: knee -> foot
-    vr = _unit_from_angle_deg(a_r_knee)
+    # REAR: knee -> foot (knee winding differs from hip winding)
+    vr = _unit_from_knee_angle_deg(a_r_knee)
     Fr = _pt_add(Kr, _pt_mul(vr, Lsr))
 
     front_caps = [
@@ -635,14 +644,14 @@ def _build_leg_capsules_for_side(
 
 def _effective_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
     """
-    Convert stored logical state angle to physical simulation angle.
-    High-level command logic stays inversion-agnostic; simulation/collision
-    reflects the actual servo output orientation.
+    Convert stored state angle to clamped logical simulation angle.
+    Simulation/collision is driven by logical command space so behavior remains
+    consistent with user controls regardless of hardware invert flags.
     """
     raw = int(state_angles.get(loc_key, 135))
     limits = _get_limits(_draft_cfg, loc_key)
-    _, physical = resolve_logical_and_physical_angle(raw, limits)
-    return float(physical)
+    logical, _ = resolve_logical_and_physical_angle(raw, limits)
+    return float(logical)
 
 
 def _angles_pack_for_side_from_state(side: str, state_angles: Dict[str, int]) -> Dict[str, float]:

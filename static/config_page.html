@@ -1372,34 +1372,39 @@
             return { x: -Math.cos(r), y: -Math.sin(r) };
         }
 
+        function unitFromKneeAngleDeg(deg) {
+            const r = degToRad(deg);
+            // Knee winding is opposite to hip winding in the sim model.
+            return { x: -Math.cos(r), y: Math.sin(r) };
+        }
+
         function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
         function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
 
         function getSideAngles(side, state) {
             const s = state || {};
             const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
-            function physicalForViz(locKey, logicalAngle) {
+            function logicalForViz(locKey, logicalAngle) {
                 const lim = locLimits(locKey);
                 const raw = clampInt(toInt(logicalAngle, 135), 0, 270);
                 let lo = clampInt(toInt(lim.deg_min, 0), 0, 270);
                 let hi = clampInt(toInt(lim.deg_max, 270), 0, 270);
                 if (hi < lo) { const t = lo; lo = hi; hi = t; }
-                const logical = clampInt(raw, lo, hi);
-                return (lim.invert === true) ? (270 - logical) : logical;
+                return clampInt(raw, lo, hi);
             }
             if (side === "right") {
                 return {
-                    front_hip: physicalForViz("front_right_hip", s.front_right_hip),
-                    front_knee: physicalForViz("front_right_knee", s.front_right_knee),
-                    rear_hip: physicalForViz("rear_right_hip", s.rear_right_hip),
-                    rear_knee: physicalForViz("rear_right_knee", s.rear_right_knee),
+                    front_hip: logicalForViz("front_right_hip", s.front_right_hip),
+                    front_knee: logicalForViz("front_right_knee", s.front_right_knee),
+                    rear_hip: logicalForViz("rear_right_hip", s.rear_right_hip),
+                    rear_knee: logicalForViz("rear_right_knee", s.rear_right_knee),
                 };
             }
             return {
-                front_hip: physicalForViz("front_left_hip", s.front_left_hip),
-                front_knee: physicalForViz("front_left_knee", s.front_left_knee),
-                rear_hip: physicalForViz("rear_left_hip", s.rear_left_hip),
-                rear_knee: physicalForViz("rear_left_knee", s.rear_left_knee),
+                front_hip: logicalForViz("front_left_hip", s.front_left_hip),
+                front_knee: logicalForViz("front_left_knee", s.front_left_knee),
+                rear_hip: logicalForViz("rear_left_hip", s.rear_left_hip),
+                rear_knee: logicalForViz("rear_left_knee", s.rear_left_knee),
             };
         }
 
@@ -1443,12 +1448,12 @@
 
             const uf = unitFromAngleDeg(a_fh);
             const Kf = add(Hf, mul(uf, Ltf));
-            const vf = unitFromAngleDeg(a_fk);
+            const vf = unitFromKneeAngleDeg(a_fk);
             const Ff = add(Kf, mul(vf, Lsf));
 
             const ur = unitFromAngleDeg(a_rh);
             const Kr = add(Hr, mul(ur, Ltr));
-            const vr = unitFromAngleDeg(a_rk);
+            const vr = unitFromKneeAngleDeg(a_rk);
             const Fr = add(Kr, mul(vr, Lsr));
 
             return {

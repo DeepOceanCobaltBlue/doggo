@@ -214,12 +214,14 @@ class ConfigApiContracts(unittest.TestCase):
             self.assertEqual(len(stub.calls), 1)
 
             ch, angle_sent, limits = stub.calls[0]
-            self.assertEqual(ch, 6)
+            expected_ch = int(module._draft_cfg["locations"]["front_right_knee"]["channel"])
+            self.assertEqual(ch, expected_ch)
             self.assertEqual(angle_sent, data["applied_angle"])
             self.assertIsNotNone(limits)
-            self.assertTrue(limits.invert)
-            self.assertEqual(int(limits.deg_min), 30)
-            self.assertEqual(int(limits.deg_max), 180)
+            expected_limits = module._draft_cfg["locations"]["front_right_knee"]["limits"]
+            self.assertEqual(bool(limits.invert), bool(expected_limits["invert"]))
+            self.assertEqual(int(limits.deg_min), int(expected_limits["deg_min"]))
+            self.assertEqual(int(limits.deg_max), int(expected_limits["deg_max"]))
         finally:
             module.pca = original_pca
 
@@ -234,7 +236,7 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertEqual(logical2, 180)
         self.assertEqual(physical2, 180)
 
-    def test_sim_pack_uses_physical_angles_for_inverted_joints(self) -> None:
+    def test_sim_pack_uses_logical_angles_even_when_inverted(self) -> None:
         module = self.config_app
         state = {
             "front_right_hip": 100,
@@ -244,9 +246,9 @@ class ConfigApiContracts(unittest.TestCase):
         }
         pack = module._angles_pack_for_side_from_state("right", state)
         self.assertEqual(pack["front_hip"], 100.0)
-        self.assertEqual(pack["front_knee"], 90.0)
+        self.assertEqual(pack["front_knee"], 180.0)
         self.assertEqual(pack["rear_hip"], 120.0)
-        self.assertEqual(pack["rear_knee"], 100.0)
+        self.assertEqual(pack["rear_knee"], 170.0)
 
     def test_sim_direction_increasing_angle_moves_toward_front(self) -> None:
         module = self.config_app
@@ -255,6 +257,12 @@ class ConfigApiContracts(unittest.TestCase):
         x180, _ = module._unit_from_angle_deg(180)
         self.assertLess(x0, x90)
         self.assertLess(x90, x180)
+
+    def test_knee_winding_is_opposite_hip_winding(self) -> None:
+        module = self.config_app
+        _, y_hip = module._unit_from_angle_deg(60)
+        _, y_knee = module._unit_from_knee_angle_deg(60)
+        self.assertEqual(round(y_hip, 6), round(-y_knee, 6))
 
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
