@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "active_side": "right",
+  "active_side": "left",
   "search_step_deg": 1,
   "search_max_iters": 300,
   "left": {
@@ -14,10 +14,10 @@
     "front_shin_radius_mm": 12.0,
     "rear_thigh_radius_mm": 19.0,
     "rear_shin_radius_mm": 12.0,
-    "front_hip_offset_deg": 0.0,
-    "front_knee_offset_deg": 270.0,
-    "rear_hip_offset_deg": 0.0,
-    "rear_knee_offset_deg": 270.0
+    "front_hip_offset_deg": 355.0,
+    "front_knee_offset_deg": 180.0,
+    "rear_hip_offset_deg": 355.0,
+    "rear_knee_offset_deg": 180.0
   },
   "right": {
     "hip_dx_mm": 111.0,
@@ -31,8 +31,8 @@
     "rear_thigh_radius_mm": 19.0,
     "rear_shin_radius_mm": 12.0,
     "front_hip_offset_deg": 270.0,
-    "front_knee_offset_deg": 0.0,
+    "front_knee_offset_deg": 60.0,
     "rear_hip_offset_deg": 270.0,
-    "rear_knee_offset_deg": 0.0
+    "rear_knee_offset_deg": 90.0
   }
 }
