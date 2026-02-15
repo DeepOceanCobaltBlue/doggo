@@ -644,14 +644,13 @@ def _build_leg_capsules_for_side(
 
 def _effective_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
     """
-    Convert stored state angle to clamped logical simulation angle.
-    Simulation/collision is driven by logical command space so behavior remains
-    consistent with user controls regardless of hardware invert flags.
+    Convert stored logical state angle to physical simulation angle.
+    Simulation/collision should reflect actual servo output orientation.
     """
     raw = int(state_angles.get(loc_key, 135))
     limits = _get_limits(_draft_cfg, loc_key)
-    logical, _ = resolve_logical_and_physical_angle(raw, limits)
-    return float(logical)
+    _, physical = resolve_logical_and_physical_angle(raw, limits)
+    return float(physical)
 
 
 def _angles_pack_for_side_from_state(side: str, state_angles: Dict[str, int]) -> Dict[str, float]:

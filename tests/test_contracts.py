@@ -236,7 +236,7 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertEqual(logical2, 180)
         self.assertEqual(physical2, 180)
 
-    def test_sim_pack_uses_logical_angles_even_when_inverted(self) -> None:
+    def test_sim_pack_uses_physical_angles_for_inverted_joints(self) -> None:
         module = self.config_app
         state = {
             "front_right_hip": 100,
@@ -246,9 +246,9 @@ class ConfigApiContracts(unittest.TestCase):
         }
         pack = module._angles_pack_for_side_from_state("right", state)
         self.assertEqual(pack["front_hip"], 100.0)
-        self.assertEqual(pack["front_knee"], 180.0)
+        self.assertEqual(pack["front_knee"], 90.0)
         self.assertEqual(pack["rear_hip"], 120.0)
-        self.assertEqual(pack["rear_knee"], 170.0)
+        self.assertEqual(pack["rear_knee"], 100.0)
 
     def test_sim_direction_increasing_angle_moves_toward_front(self) -> None:
         module = self.config_app
