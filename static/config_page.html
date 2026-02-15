@@ -617,6 +617,31 @@
                 </div>
             </div>
 
+            <div class="sidebarSection">
+                <div class="sectionTitle">Geometry Readout</div>
+                <div class="muted">Live, read-only angles from current simulated pose.</div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Hip line vs front thigh</label>
+                        <input id="geoHipFront" type="text" value="—" readonly />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Hip line vs rear thigh</label>
+                        <input id="geoHipRear" type="text" value="—" readonly />
+                    </div>
+                </div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Toe line vs front shin</label>
+                        <input id="geoToeFront" type="text" value="—" readonly />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Toe line vs rear shin</label>
+                        <input id="geoToeRear" type="text" value="—" readonly />
+                    </div>
+                </div>
+            </div>
+
             <div class="muted">
                 Limits apply when you send commands in this app and will be saved to
                 <code>config/config_file.json</code>.
@@ -1393,6 +1418,16 @@
             return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
         }
 
+        function angleBetweenSegmentsDeg(a0, a1, b0, b1) {
+            const ux = a1.x - a0.x, uy = a1.y - a0.y;
+            const vx = b1.x - b0.x, vy = b1.y - b0.y;
+            const un = Math.hypot(ux, uy);
+            const vn = Math.hypot(vx, vy);
+            if (un < 1e-9 || vn < 1e-9) return 0;
+            const dot = (ux * vx + uy * vy) / (un * vn);
+            return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
+        }
+
         function getSideAngles(side, state) {
             const s = state || {};
             const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
@@ -1471,6 +1506,10 @@
 
             const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
             const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
+            const hipVsFrontThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hf, Kf);
+            const hipVsRearThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hr, Kr);
+            const toeVsFrontShinDeg = angleBetweenSegmentsDeg(Ff, Fr, Kf, Ff);
+            const toeVsRearShinDeg = angleBetweenSegmentsDeg(Ff, Fr, Kr, Fr);
 
             return {
                 side,
@@ -1478,9 +1517,25 @@
                 angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
                 simAngles: { a_fh, a_fk, a_rh, a_rk },
                 relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
+                baselines: {
+                    hip_vs_front_thigh_deg: hipVsFrontThighDeg,
+                    hip_vs_rear_thigh_deg: hipVsRearThighDeg,
+                    toe_vs_front_shin_deg: toeVsFrontShinDeg,
+                    toe_vs_rear_shin_deg: toeVsRearShinDeg,
+                },
                 lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr },
                 radii: { r_ft, r_fs, r_rt, r_rs },
             };
+        }
+
+        function setGeoReadout(id, v) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (!Number.isFinite(v)) {
+                el.value = "—";
+                return;
+            }
+            el.value = `${v.toFixed(1)} deg`;
         }
 
         function renderViz() {
@@ -1498,6 +1553,10 @@
             if (!g) {
                 overlay.textContent = "Waiting for dynamic_limits…";
                 poseInfo.textContent = "—";
+                setGeoReadout("geoHipFront", NaN);
+                setGeoReadout("geoHipRear", NaN);
+                setGeoReadout("geoToeFront", NaN);
+                setGeoReadout("geoToeRear", NaN);
                 return;
             }
 
@@ -1541,6 +1600,27 @@
             ctx.lineTo(W, y0);
             ctx.stroke();
             ctx.restore();
+
+            function drawGuideLine(a, b, color, label) {
+                const A = toCanvas(a);
+                const B = toCanvas(b);
+                ctx.save();
+                ctx.globalAlpha = 0.95;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 4;
+                ctx.setLineDash([10, 7]);
+                ctx.beginPath();
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(B.x, B.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = color;
+                ctx.font = `${Math.max(12, 12 * (window.devicePixelRatio || 1))}px system-ui`;
+                const mx = (A.x + B.x) * 0.5;
+                const my = (A.y + B.y) * 0.5;
+                ctx.fillText(label, mx + 8, my - 8);
+                ctx.restore();
+            }
 
             // Draw capsule helper (thick line with round caps)
             function drawCapsule(a, b, r_mm, alpha) {
@@ -1596,6 +1676,10 @@
             drawLink(Hr, Kr, 3, 0.55);
             drawLink(Kr, Fr, 3, 0.55);
 
+            // highlighted guide lines for alignment checks
+            drawGuideLine(Hf, Hr, "#57d4ff", "Hip line");
+            drawGuideLine(Ff, Fr, "#ffd166", "Toe line");
+
             // joints
             drawJoint(Hf, 0.9);
             drawJoint(Kf, 0.8);
@@ -1640,6 +1724,11 @@
                 `Offsets: FH=${(dynVars[g.side].front_hip_offset_deg ?? 0).toFixed(1)} FK=${(dynVars[g.side].front_knee_offset_deg ?? 0).toFixed(1)} ` +
                 `RH=${(dynVars[g.side].rear_hip_offset_deg ?? 0).toFixed(1)} RK=${(dynVars[g.side].rear_knee_offset_deg ?? 0).toFixed(1)} • ` +
                 collisionTxt;
+
+            setGeoReadout("geoHipFront", g.baselines.hip_vs_front_thigh_deg);
+            setGeoReadout("geoHipRear", g.baselines.hip_vs_rear_thigh_deg);
+            setGeoReadout("geoToeFront", g.baselines.toe_vs_front_shin_deg);
+            setGeoReadout("geoToeRear", g.baselines.toe_vs_rear_shin_deg);
 
         }
 
