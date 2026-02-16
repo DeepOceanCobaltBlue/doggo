@@ -36,8 +36,8 @@
     "rear_left_hip": {
       "channel": 0,
       "limits": {
-        "deg_min": 60,
-        "deg_max": 190,
+        "deg_min": 58,
+        "deg_max": 270,
         "invert": true
       }
     },
