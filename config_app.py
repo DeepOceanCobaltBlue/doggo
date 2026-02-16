@@ -279,14 +279,32 @@ def _default_dyn_side() -> Dict[str, Any]:
     }
 
 
+def _default_calibration_profile() -> Dict[str, Any]:
+    return {
+        "fit_mode": "linear_best_fit",
+        "pairs": [
+            {"commanded_deg": 0.0, "actual_deg": 0.0},
+            {"commanded_deg": 270.0, "actual_deg": 270.0},
+        ],
+    }
+
+
+def _default_joint_calibration_map() -> Dict[str, str]:
+    return {loc.key: "identity" for loc in LOCATIONS}
+
+
 def _default_dyn_vars() -> Dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "active_side": "left",
         "search_step_deg": 1,
         "search_max_iters": 300,
         "left": _default_dyn_side(),
         "right": _default_dyn_side(),
+        "calibration_profiles": {
+            "identity": _default_calibration_profile(),
+        },
+        "joint_calibration_map": _default_joint_calibration_map(),
     }
 
 
@@ -315,7 +333,7 @@ def _load_dyn_vars() -> Dict[str, Any]:
         raw = json.loads(DYN_VARS_FILE.read_text())
         out = _default_dyn_vars()
 
-        if int(raw.get("version", 0)) != 1:
+        if int(raw.get("version", 0)) not in (1, 2):
             return out
 
         active_side = str(raw.get("active_side", "left")).strip().lower()
@@ -335,6 +353,51 @@ def _load_dyn_vars() -> Dict[str, Any]:
                 if k.endswith("_mm") or k.endswith("_deg") or "radius" in k or "len" in k or "hip_" in k:
                     side_out[k] = _coerce_float(side_raw.get(k, side_out[k]), side_out[k])
 
+        # calibration profiles
+        profiles_out: Dict[str, Dict[str, Any]] = {}
+        profiles_raw = raw.get("calibration_profiles", {})
+        if isinstance(profiles_raw, dict):
+            for name_raw, prof_raw in profiles_raw.items():
+                name = str(name_raw).strip()
+                if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name) is None:
+                    continue
+                if not isinstance(prof_raw, dict):
+                    continue
+                pairs_in = prof_raw.get("pairs", [])
+                pairs_out: List[Dict[str, float]] = []
+                if isinstance(pairs_in, list):
+                    for item in pairs_in:
+                        if not isinstance(item, dict):
+                            continue
+                        c = _coerce_float(item.get("commanded_deg", 0.0), 0.0)
+                        a = _coerce_float(item.get("actual_deg", 0.0), 0.0)
+                        pairs_out.append(
+                            {
+                                "commanded_deg": float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, c))),
+                                "actual_deg": float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, a))),
+                            }
+                        )
+                profiles_out[name] = {
+                    "fit_mode": "linear_best_fit",
+                    "pairs": pairs_out,
+                }
+
+        if "identity" not in profiles_out:
+            profiles_out["identity"] = _default_calibration_profile()
+        out["calibration_profiles"] = profiles_out
+
+        # per-joint profile assignments
+        map_out = _default_joint_calibration_map()
+        map_raw = raw.get("joint_calibration_map", {})
+        if isinstance(map_raw, dict):
+            for loc in LOCATIONS:
+                assigned = str(map_raw.get(loc.key, map_out[loc.key])).strip()
+                if assigned in profiles_out:
+                    map_out[loc.key] = assigned
+                else:
+                    map_out[loc.key] = "identity"
+        out["joint_calibration_map"] = map_out
+
         return out
     except Exception:
         return _default_dyn_vars()
@@ -343,7 +406,7 @@ def _load_dyn_vars() -> Dict[str, Any]:
 def _save_dyn_vars(dv: Dict[str, Any]) -> None:
     _ensure_config_dir()
     dv = dict(dv)
-    dv["version"] = 1
+    dv["version"] = 2
     DYN_VARS_FILE.write_text(json.dumps(dv, indent=2))
 
 
@@ -360,6 +423,80 @@ def _validate_dyn_side_values(side_name: str, side_vals: Dict[str, Any]) -> Opti
         return f"{side_name}.hip_dx_mm must be >= 0"
 
     return None
+
+
+def _linear_fit_from_pairs(pairs: List[Dict[str, float]]) -> Tuple[Optional[float], Optional[float]]:
+    if len(pairs) < 2:
+        return None, None
+    xs = [float(p.get("commanded_deg", 0.0)) for p in pairs]
+    ys = [float(p.get("actual_deg", 0.0)) for p in pairs]
+    n = float(len(xs))
+    x_mean = sum(xs) / n
+    y_mean = sum(ys) / n
+    var_x = sum((x - x_mean) ** 2 for x in xs)
+    if var_x <= 1e-12:
+        return None, None
+    cov_xy = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
+    m = cov_xy / var_x
+    b = y_mean - m * x_mean
+    return float(m), float(b)
+
+
+def _build_calibration_fit_cache(dv: Dict[str, Any]) -> Dict[str, Optional[Tuple[float, float]]]:
+    out: Dict[str, Optional[Tuple[float, float]]] = {}
+    profiles = dv.get("calibration_profiles", {})
+    if not isinstance(profiles, dict):
+        return out
+    for name, prof in profiles.items():
+        if not isinstance(prof, dict):
+            out[str(name)] = None
+            continue
+        pairs = prof.get("pairs", [])
+        if not isinstance(pairs, list):
+            out[str(name)] = None
+            continue
+        m, b = _linear_fit_from_pairs([p for p in pairs if isinstance(p, dict)])
+        out[str(name)] = (m, b) if m is not None and b is not None else None
+    return out
+
+
+def _apply_sim_calibration_to_physical(
+    loc_key: str,
+    physical_deg: float,
+    dv: Dict[str, Any],
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
+) -> float:
+    profiles = dv.get("calibration_profiles", {})
+    if not isinstance(profiles, dict):
+        return float(physical_deg)
+
+    jmap = dv.get("joint_calibration_map", {})
+    if not isinstance(jmap, dict):
+        jmap = {}
+    prof_name = str(jmap.get(loc_key, "identity"))
+    if prof_name not in profiles:
+        prof_name = "identity"
+    if prof_name not in profiles:
+        return float(physical_deg)
+
+    fit = None
+    if fit_cache is not None:
+        fit = fit_cache.get(prof_name)
+    else:
+        prof = profiles.get(prof_name, {})
+        if isinstance(prof, dict):
+            pairs = prof.get("pairs", [])
+            if isinstance(pairs, list):
+                m, b = _linear_fit_from_pairs([p for p in pairs if isinstance(p, dict)])
+                if m is not None and b is not None:
+                    fit = (m, b)
+
+    if fit is None:
+        return float(physical_deg)
+
+    m, b = fit
+    predicted = float(m * float(physical_deg) + b)
+    return float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, predicted)))
 
 
 # -----------------------------
@@ -658,7 +795,12 @@ def _build_leg_capsules_for_side(
     return front_caps, rear_caps
 
 
-def _effective_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
+def _effective_sim_angle_from_state(
+    loc_key: str,
+    state_angles: Dict[str, int],
+    dv: Optional[Dict[str, Any]] = None,
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
+) -> float:
     """
     Convert stored logical state angle to physical simulation angle.
     Simulation/collision should reflect actual servo output orientation.
@@ -666,26 +808,38 @@ def _effective_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) 
     raw = int(state_angles.get(loc_key, 135))
     limits = _get_limits(_draft_cfg, loc_key)
     _, physical = resolve_logical_and_physical_angle(raw, limits)
-    return float(physical)
+    model = dv if isinstance(dv, dict) else _dyn_vars
+    predicted = _apply_sim_calibration_to_physical(
+        loc_key=loc_key,
+        physical_deg=float(physical),
+        dv=model,
+        fit_cache=fit_cache,
+    )
+    return float(predicted)
 
 
-def _angles_pack_for_side_from_state(side: str, state_angles: Dict[str, int]) -> Dict[str, float]:
+def _angles_pack_for_side_from_state(
+    side: str,
+    state_angles: Dict[str, int],
+    dv: Optional[Dict[str, Any]] = None,
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
+) -> Dict[str, float]:
     """
     Extract 4 joint angles for the side from the full location-key->angle dict.
     """
     if side == "left":
         return {
-            "front_hip": _effective_sim_angle_from_state("front_left_hip", state_angles),
-            "front_knee": _effective_sim_angle_from_state("front_left_knee", state_angles),
-            "rear_hip": _effective_sim_angle_from_state("rear_left_hip", state_angles),
-            "rear_knee": _effective_sim_angle_from_state("rear_left_knee", state_angles),
+            "front_hip": _effective_sim_angle_from_state("front_left_hip", state_angles, dv=dv, fit_cache=fit_cache),
+            "front_knee": _effective_sim_angle_from_state("front_left_knee", state_angles, dv=dv, fit_cache=fit_cache),
+            "rear_hip": _effective_sim_angle_from_state("rear_left_hip", state_angles, dv=dv, fit_cache=fit_cache),
+            "rear_knee": _effective_sim_angle_from_state("rear_left_knee", state_angles, dv=dv, fit_cache=fit_cache),
         }
     else:
         return {
-            "front_hip": _effective_sim_angle_from_state("front_right_hip", state_angles),
-            "front_knee": _effective_sim_angle_from_state("front_right_knee", state_angles),
-            "rear_hip": _effective_sim_angle_from_state("rear_right_hip", state_angles),
-            "rear_knee": _effective_sim_angle_from_state("rear_right_knee", state_angles),
+            "front_hip": _effective_sim_angle_from_state("front_right_hip", state_angles, dv=dv, fit_cache=fit_cache),
+            "front_knee": _effective_sim_angle_from_state("front_right_knee", state_angles, dv=dv, fit_cache=fit_cache),
+            "rear_hip": _effective_sim_angle_from_state("rear_right_hip", state_angles, dv=dv, fit_cache=fit_cache),
+            "rear_knee": _effective_sim_angle_from_state("rear_right_knee", state_angles, dv=dv, fit_cache=fit_cache),
         }
 
 
@@ -693,12 +847,14 @@ def _predict_collision_for_side(
     dv: Dict[str, Any],
     side: str,
     state_angles: Dict[str, int],
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Returns (collides, details) for the current pose on a given side.
     Details include closest pair info.
     """
-    pack = _angles_pack_for_side_from_state(side, state_angles)
+    cache = fit_cache if fit_cache is not None else _build_calibration_fit_cache(dv)
+    pack = _angles_pack_for_side_from_state(side, state_angles, dv=dv, fit_cache=cache)
     front_caps, rear_caps = _build_leg_capsules_for_side(dv, side, pack)
 
     best = None  # (min_dist, threshold, c1.name, c2.name)
@@ -759,9 +915,11 @@ def _solve_closest_safe_angle_step_search(
     requested_angle = _clamp_int(requested_angle, lo, hi)
     current_angle = _clamp_int(current_angle, lo, hi)
 
+    fit_cache = _build_calibration_fit_cache(dv)
+
     # Quick check requested
     test_state = _apply_angle_to_state(loc_key, requested_angle, state_angles)
-    collides, details = _predict_collision_for_side(dv, side, test_state)
+    collides, details = _predict_collision_for_side(dv, side, test_state, fit_cache=fit_cache)
     if not collides:
         return requested_angle, False, details
 
@@ -785,7 +943,7 @@ def _solve_closest_safe_angle_step_search(
 
         for candidate in in_range:
             test_state = _apply_angle_to_state(loc_key, int(candidate), state_angles)
-            collides, det = _predict_collision_for_side(dv, side, test_state)
+            collides, det = _predict_collision_for_side(dv, side, test_state, fit_cache=fit_cache)
             best_details = det
             if not collides:
                 return int(candidate), True, det
@@ -793,7 +951,7 @@ def _solve_closest_safe_angle_step_search(
     # Could not find safe near requested; stick with current (even if colliding)
     fallback = _clamp_int(int(current_angle), lo, hi)
     test_state = _apply_angle_to_state(loc_key, fallback, state_angles)
-    _, det = _predict_collision_for_side(dv, side, test_state)
+    _, det = _predict_collision_for_side(dv, side, test_state, fit_cache=fit_cache)
     return fallback, True, det
 
 
@@ -908,8 +1066,9 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
 
 
 def _collision_snapshot_for_state(state_angles: Dict[str, int]) -> Dict[str, Any]:
-    left_collides, left_details = _predict_collision_for_side(_dyn_vars, "left", state_angles)
-    right_collides, right_details = _predict_collision_for_side(_dyn_vars, "right", state_angles)
+    fit_cache = _build_calibration_fit_cache(_dyn_vars)
+    left_collides, left_details = _predict_collision_for_side(_dyn_vars, "left", state_angles, fit_cache=fit_cache)
+    right_collides, right_details = _predict_collision_for_side(_dyn_vars, "right", state_angles, fit_cache=fit_cache)
     return {
         "left": {"collides": bool(left_collides), "details": left_details},
         "right": {"collides": bool(right_collides), "details": right_details},
@@ -993,12 +1152,79 @@ def api_set_dynamic_limits():
                 side_out[k] = _coerce_float(side_in.get(k), side_out.get(k, 0.0))
         merged[side] = side_out
 
+    # calibration profiles
+    if "calibration_profiles" in dv:
+        profs_in = dv.get("calibration_profiles")
+        if not isinstance(profs_in, dict):
+            return jsonify({"ok": False, "error": "calibration_profiles must be an object"}), 400
+        next_profiles: Dict[str, Dict[str, Any]] = {}
+        for name_raw, prof_raw in profs_in.items():
+            name = str(name_raw).strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name) is None:
+                return jsonify({"ok": False, "error": f"invalid profile name '{name}'"}), 400
+            if not isinstance(prof_raw, dict):
+                return jsonify({"ok": False, "error": f"profile '{name}' must be an object"}), 400
+            pairs_raw = prof_raw.get("pairs", [])
+            if not isinstance(pairs_raw, list):
+                return jsonify({"ok": False, "error": f"profile '{name}'.pairs must be an array"}), 400
+            pairs_out: List[Dict[str, float]] = []
+            for item in pairs_raw:
+                if not isinstance(item, dict):
+                    return jsonify({"ok": False, "error": f"profile '{name}'.pairs entries must be objects"}), 400
+                c = _coerce_float(item.get("commanded_deg"), 0.0)
+                a = _coerce_float(item.get("actual_deg"), 0.0)
+                pairs_out.append(
+                    {
+                        "commanded_deg": float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, c))),
+                        "actual_deg": float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, a))),
+                    }
+                )
+            next_profiles[name] = {"fit_mode": "linear_best_fit", "pairs": pairs_out}
+        if "identity" not in next_profiles:
+            next_profiles["identity"] = _default_calibration_profile()
+        merged["calibration_profiles"] = next_profiles
+
+    # per-joint profile assignment
+    if "joint_calibration_map" in dv:
+        map_in = dv.get("joint_calibration_map")
+        if not isinstance(map_in, dict):
+            return jsonify({"ok": False, "error": "joint_calibration_map must be an object"}), 400
+        map_out = dict(merged.get("joint_calibration_map", _default_joint_calibration_map()))
+        profiles = merged.get("calibration_profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {"identity": _default_calibration_profile()}
+        for loc in LOCATIONS:
+            if loc.key not in map_in:
+                continue
+            prof_name = str(map_in.get(loc.key, "identity")).strip()
+            if prof_name not in profiles:
+                return jsonify({"ok": False, "error": f"unknown profile '{prof_name}' for '{loc.key}'"}), 400
+            map_out[loc.key] = prof_name
+        merged["joint_calibration_map"] = map_out
+
+    # guarantee full joint map and valid references
+    profiles = merged.get("calibration_profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {"identity": _default_calibration_profile()}
+    if "identity" not in profiles:
+        profiles["identity"] = _default_calibration_profile()
+    merged["calibration_profiles"] = profiles
+
+    jmap = merged.get("joint_calibration_map", {})
+    if not isinstance(jmap, dict):
+        jmap = {}
+    complete_map: Dict[str, str] = {}
+    for loc in LOCATIONS:
+        p = str(jmap.get(loc.key, "identity")).strip()
+        complete_map[loc.key] = p if p in profiles else "identity"
+    merged["joint_calibration_map"] = complete_map
+
     for side in ("left", "right"):
         err = _validate_dyn_side_values(side, merged[side])
         if err is not None:
             return jsonify({"ok": False, "error": err}), 400
 
-    merged["version"] = 1
+    merged["version"] = 2
     _save_dyn_vars(merged)
     _dyn_vars = merged
     return jsonify({"ok": True, "dynamic_limits": _dyn_vars})

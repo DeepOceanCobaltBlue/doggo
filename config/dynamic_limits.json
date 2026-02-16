@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "active_side": "left",
   "search_step_deg": 1,
   "search_max_iters": 300,
@@ -34,5 +34,30 @@
     "front_knee_offset_deg": 60.0,
     "rear_hip_offset_deg": 270.0,
     "rear_knee_offset_deg": 90.0
+  },
+  "calibration_profiles": {
+    "identity": {
+      "fit_mode": "linear_best_fit",
+      "pairs": [
+        {
+          "commanded_deg": 0.0,
+          "actual_deg": 0.0
+        },
+        {
+          "commanded_deg": 270.0,
+          "actual_deg": 270.0
+        }
+      ]
+    }
+  },
+  "joint_calibration_map": {
+    "front_left_hip": "identity",
+    "front_left_knee": "identity",
+    "front_right_hip": "identity",
+    "front_right_knee": "identity",
+    "rear_left_hip": "identity",
+    "rear_left_knee": "identity",
+    "rear_right_hip": "identity",
+    "rear_right_knee": "identity"
   }
 }

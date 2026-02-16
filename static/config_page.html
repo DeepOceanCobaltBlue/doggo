@@ -385,6 +385,25 @@
             font-weight: 900;
             font-size: 14px;
             margin-bottom: 2px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sectionTitle::after {
+            content: "▾";
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .sidebarSection.collapsed>.sectionTitle::after {
+            content: "▸";
+        }
+
+        .sidebarSection.collapsed>:not(.sectionTitle) {
+            display: none;
         }
 
         .grid2 {
@@ -401,6 +420,27 @@
 
         .mono {
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        .pairsList {
+            max-height: 180px;
+            overflow: auto;
+            border: 1px solid rgba(255, 255, 255, .12);
+            border-radius: 10px;
+            padding: 6px;
+        }
+
+        .pairRow {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 8px;
+            align-items: center;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, .08);
+        }
+
+        .pairRow:last-child {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -578,7 +618,61 @@
                     </div>
                 </div>
 
+                <div class="divider"></div>
+                <div style="font-weight:900;">Relative angles (sim)</div>
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Front thigh vs shin</label>
+                        <input id="geoRelFront" type="text" value="—" readonly />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear thigh vs shin</label>
+                        <input id="geoRelRear" type="text" value="—" readonly />
+                    </div>
+                </div>
+
                 <div class="muted" id="dl_status">—</div>
+            </div>
+
+            <div class="sidebarSection">
+                <div class="sectionTitle">Calibration</div>
+                <div class="muted">Simulation-only linear fit. Commands sent to servos are unchanged.</div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Profile</label>
+                        <select id="cal_profile_select"></select>
+                    </div>
+                    <div class="field">
+                        <label class="muted">New profile</label>
+                        <input id="cal_new_profile" type="text" placeholder="e.g. hip_standard" />
+                    </div>
+                </div>
+                <div class="row">
+                    <button id="cal_create_profile_btn">Create</button>
+                    <button id="cal_delete_profile_btn">Delete</button>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
+                        <label class="muted">Commanded (deg)</label>
+                        <input id="cal_cmd_input" type="number" min="0" max="270" step="0.1" />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Actual (deg)</label>
+                        <input id="cal_actual_input" type="number" min="0" max="270" step="0.1" />
+                    </div>
+                </div>
+                <div class="row">
+                    <button id="cal_add_pair_btn">Add pair</button>
+                </div>
+
+                <div id="cal_fit_summary" class="muted">—</div>
+                <div id="cal_pairs_list" class="pairsList"></div>
+
+                <div class="divider"></div>
+                <div style="font-weight:900;">Joint profile assignment</div>
+                <div id="cal_joint_map" class="field"></div>
             </div>
 
             <div class="sidebarSection">
@@ -614,31 +708,6 @@
                 <div class="row">
                     <select id="stanceSelect"></select>
                     <button id="activateStanceBtn" class="primary">Activate</button>
-                </div>
-            </div>
-
-            <div class="sidebarSection">
-                <div class="sectionTitle">Geometry Readout</div>
-                <div class="muted">Live, read-only angles from current simulated pose.</div>
-                <div class="grid2">
-                    <div class="field">
-                        <label class="muted">Hip line vs front thigh</label>
-                        <input id="geoHipFront" type="text" value="—" readonly />
-                    </div>
-                    <div class="field">
-                        <label class="muted">Hip line vs rear thigh</label>
-                        <input id="geoHipRear" type="text" value="—" readonly />
-                    </div>
-                </div>
-                <div class="grid2">
-                    <div class="field">
-                        <label class="muted">Front thigh vs shin</label>
-                        <input id="geoRelFront" type="text" value="—" readonly />
-                    </div>
-                    <div class="field">
-                        <label class="muted">Rear thigh vs shin</label>
-                        <input id="geoRelRear" type="text" value="—" readonly />
-                    </div>
                 </div>
             </div>
 
@@ -921,6 +990,24 @@
             const el = document.getElementById("cmdStatus");
             el.className = cls;
             el.textContent = text;
+        }
+
+        function initCollapsibleSections() {
+            const KEY = "doggo:sidebarCollapsed:v1";
+            let saved = {};
+            try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { saved = {}; }
+            document.querySelectorAll(".sidebarSection").forEach((section, idx) => {
+                const title = section.querySelector(".sectionTitle");
+                if (!title) return;
+                const sid = title.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_") || `section_${idx}`;
+                section.dataset.sid = sid;
+                if (saved[sid] === true) section.classList.add("collapsed");
+                title.addEventListener("click", () => {
+                    section.classList.toggle("collapsed");
+                    saved[sid] = section.classList.contains("collapsed");
+                    try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch { }
+                });
+            });
         }
 
         /* -------------------- Sidebar + selection -------------------- */
@@ -1256,8 +1343,173 @@
             document.getElementById("dl_side_label").textContent = side;
         }
 
+        function ensureCalibrationModel() {
+            if (!dynVars) return;
+            if (!dynVars.calibration_profiles || typeof dynVars.calibration_profiles !== "object") {
+                dynVars.calibration_profiles = {};
+            }
+            if (!dynVars.calibration_profiles.identity) {
+                dynVars.calibration_profiles.identity = {
+                    fit_mode: "linear_best_fit",
+                    pairs: [
+                        { commanded_deg: 0, actual_deg: 0 },
+                        { commanded_deg: 270, actual_deg: 270 },
+                    ],
+                };
+            }
+            if (!dynVars.joint_calibration_map || typeof dynVars.joint_calibration_map !== "object") {
+                dynVars.joint_calibration_map = {};
+            }
+            for (const loc of locations) {
+                if (!dynVars.joint_calibration_map[loc.key] || !dynVars.calibration_profiles[dynVars.joint_calibration_map[loc.key]]) {
+                    dynVars.joint_calibration_map[loc.key] = "identity";
+                }
+            }
+        }
+
+        function calibrationProfileNames() {
+            ensureCalibrationModel();
+            return Object.keys(dynVars.calibration_profiles || {}).sort();
+        }
+
+        function selectedCalibrationProfileName() {
+            const sel = document.getElementById("cal_profile_select");
+            const names = calibrationProfileNames();
+            if (!names.length) return "identity";
+            const cur = String(sel.value || "").trim();
+            return names.includes(cur) ? cur : names[0];
+        }
+
+        function fitLinearFromPairs(pairs) {
+            if (!Array.isArray(pairs) || pairs.length < 2) return null;
+            const xs = [];
+            const ys = [];
+            for (const p of pairs) {
+                if (!p || typeof p !== "object") continue;
+                const x = toFloat(p.commanded_deg, null);
+                const y = toFloat(p.actual_deg, null);
+                if (x === null || y === null) continue;
+                xs.push(x);
+                ys.push(y);
+            }
+            if (xs.length < 2) return null;
+            const n = xs.length;
+            const xMean = xs.reduce((a, b) => a + b, 0) / n;
+            const yMean = ys.reduce((a, b) => a + b, 0) / n;
+            let varX = 0;
+            let covXY = 0;
+            let sst = 0;
+            let sse = 0;
+            for (let i = 0; i < n; i++) {
+                varX += (xs[i] - xMean) * (xs[i] - xMean);
+                covXY += (xs[i] - xMean) * (ys[i] - yMean);
+            }
+            if (varX <= 1e-9) return null;
+            const m = covXY / varX;
+            const b = yMean - m * xMean;
+            for (let i = 0; i < n; i++) {
+                const yHat = m * xs[i] + b;
+                sse += (ys[i] - yHat) * (ys[i] - yHat);
+                sst += (ys[i] - yMean) * (ys[i] - yMean);
+            }
+            const r2 = sst <= 1e-9 ? 1.0 : (1.0 - sse / sst);
+            return { m, b, r2, n };
+        }
+
+        function renderCalibrationUi() {
+            if (!dynVars) return;
+            ensureCalibrationModel();
+
+            const profileSel = document.getElementById("cal_profile_select");
+            const names = calibrationProfileNames();
+            const prev = String(profileSel.value || "");
+            profileSel.innerHTML = "";
+            for (const name of names) {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                profileSel.appendChild(opt);
+            }
+            profileSel.value = names.includes(prev) ? prev : (names[0] || "identity");
+
+            const active = selectedCalibrationProfileName();
+            const profile = dynVars.calibration_profiles[active] || { pairs: [] };
+            const pairs = Array.isArray(profile.pairs) ? profile.pairs : [];
+
+            const fit = fitLinearFromPairs(pairs);
+            const fitEl = document.getElementById("cal_fit_summary");
+            if (!fit) {
+                fitEl.textContent = "Need at least 2 points for fit. Using identity in sim.";
+            } else {
+                fitEl.textContent = `Fit: actual = ${fit.m.toFixed(4)}*commanded + ${fit.b.toFixed(2)} (R²=${fit.r2.toFixed(4)}, n=${fit.n})`;
+            }
+
+            const pairsWrap = document.getElementById("cal_pairs_list");
+            pairsWrap.innerHTML = "";
+            if (!pairs.length) {
+                const empty = document.createElement("div");
+                empty.className = "muted";
+                empty.textContent = "No pairs in this profile.";
+                pairsWrap.appendChild(empty);
+            } else {
+                pairs.forEach((p, idx) => {
+                    const row = document.createElement("div");
+                    row.className = "pairRow";
+                    const c = document.createElement("div");
+                    c.className = "mono";
+                    c.textContent = Number(p.commanded_deg).toFixed(1);
+                    const a = document.createElement("div");
+                    a.className = "mono";
+                    a.textContent = Number(p.actual_deg).toFixed(1);
+                    const rm = document.createElement("button");
+                    rm.className = "tiny";
+                    rm.textContent = "Remove";
+                    rm.addEventListener("click", () => {
+                        profile.pairs.splice(idx, 1);
+                        scheduleDynVarsSave();
+                        renderCalibrationUi();
+                        renderViz();
+                    });
+                    row.appendChild(c);
+                    row.appendChild(a);
+                    row.appendChild(rm);
+                    pairsWrap.appendChild(row);
+                });
+            }
+
+            const mapWrap = document.getElementById("cal_joint_map");
+            mapWrap.innerHTML = "";
+            for (const loc of locations) {
+                const row = document.createElement("div");
+                row.className = "row";
+                const lab = document.createElement("label");
+                lab.className = "muted";
+                lab.textContent = loc.label;
+                lab.htmlFor = `cal_map_${loc.key}`;
+                const sel = document.createElement("select");
+                sel.id = `cal_map_${loc.key}`;
+                for (const name of names) {
+                    const opt = document.createElement("option");
+                    opt.value = name;
+                    opt.textContent = name;
+                    sel.appendChild(opt);
+                }
+                const assigned = dynVars.joint_calibration_map[loc.key] || "identity";
+                sel.value = names.includes(assigned) ? assigned : "identity";
+                sel.addEventListener("change", () => {
+                    dynVars.joint_calibration_map[loc.key] = sel.value;
+                    scheduleDynVarsSave();
+                    renderViz();
+                });
+                row.appendChild(lab);
+                row.appendChild(sel);
+                mapWrap.appendChild(row);
+            }
+        }
+
         function syncDynVarsInputs() {
             if (!dynVars) return;
+            ensureCalibrationModel();
             const side = activeSide();
             setSideRadio(side);
 
@@ -1283,6 +1535,7 @@
             document.getElementById("dl_off_fk").value = String(s.front_knee_offset_deg ?? 0);
             document.getElementById("dl_off_rh").value = String(s.rear_hip_offset_deg ?? 0);
             document.getElementById("dl_off_rk").value = String(s.rear_knee_offset_deg ?? 0);
+            renderCalibrationUi();
         }
 
         function readDynVarsInputsIntoModel() {
@@ -1436,6 +1689,19 @@
             return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
         }
 
+        function calibratedPhysicalForViz(locKey, physicalAngle) {
+            const profiles = dynVars?.calibration_profiles;
+            const jmap = dynVars?.joint_calibration_map;
+            if (!profiles || typeof profiles !== "object") return physicalAngle;
+            let profName = String((jmap && jmap[locKey]) || "identity");
+            if (!profiles[profName]) profName = "identity";
+            const prof = profiles[profName];
+            if (!prof || typeof prof !== "object") return physicalAngle;
+            const fit = fitLinearFromPairs(Array.isArray(prof.pairs) ? prof.pairs : []);
+            if (!fit) return physicalAngle;
+            return Math.max(0, Math.min(270, fit.m * physicalAngle + fit.b));
+        }
+
         function getSideAngles(side, state) {
             const s = state || {};
             const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
@@ -1446,7 +1712,8 @@
                 let hi = clampInt(toInt(lim.deg_max, 270), 0, 270);
                 if (hi < lo) { const t = lo; lo = hi; hi = t; }
                 const logical = clampInt(raw, lo, hi);
-                return (lim.invert === true) ? (270 - logical) : logical;
+                const physical = (lim.invert === true) ? (270 - logical) : logical;
+                return calibratedPhysicalForViz(locKey, physical);
             }
             if (side === "right") {
                 return {
@@ -1933,6 +2200,65 @@
             });
         });
 
+        // Calibration controls
+        document.getElementById("cal_profile_select").addEventListener("change", () => {
+            renderCalibrationUi();
+        });
+        document.getElementById("cal_create_profile_btn").addEventListener("click", () => {
+            if (!dynVars) return;
+            ensureCalibrationModel();
+            const raw = String(document.getElementById("cal_new_profile").value || "").trim();
+            if (!/^[A-Za-z0-9_-]{1,40}$/.test(raw)) {
+                setDlStatus("Profile name must match [A-Za-z0-9_-]{1,40}", "danger");
+                return;
+            }
+            if (!dynVars.calibration_profiles[raw]) {
+                dynVars.calibration_profiles[raw] = { fit_mode: "linear_best_fit", pairs: [] };
+            }
+            document.getElementById("cal_new_profile").value = "";
+            renderCalibrationUi();
+            document.getElementById("cal_profile_select").value = raw;
+            scheduleDynVarsSave();
+        });
+        document.getElementById("cal_delete_profile_btn").addEventListener("click", () => {
+            if (!dynVars) return;
+            ensureCalibrationModel();
+            const name = selectedCalibrationProfileName();
+            if (name === "identity") {
+                setDlStatus("Cannot delete identity profile", "danger");
+                return;
+            }
+            delete dynVars.calibration_profiles[name];
+            for (const loc of locations) {
+                if (dynVars.joint_calibration_map[loc.key] === name) {
+                    dynVars.joint_calibration_map[loc.key] = "identity";
+                }
+            }
+            renderCalibrationUi();
+            scheduleDynVarsSave();
+            renderViz();
+        });
+        document.getElementById("cal_add_pair_btn").addEventListener("click", () => {
+            if (!dynVars) return;
+            ensureCalibrationModel();
+            const name = selectedCalibrationProfileName();
+            const cmd = toFloat(document.getElementById("cal_cmd_input").value, null);
+            const act = toFloat(document.getElementById("cal_actual_input").value, null);
+            if (cmd === null || act === null) {
+                setDlStatus("Calibration pair requires numeric commanded/actual", "danger");
+                return;
+            }
+            const c = Math.max(0, Math.min(270, cmd));
+            const a = Math.max(0, Math.min(270, act));
+            const prof = dynVars.calibration_profiles[name] || { fit_mode: "linear_best_fit", pairs: [] };
+            if (!Array.isArray(prof.pairs)) prof.pairs = [];
+            prof.pairs.push({ commanded_deg: c, actual_deg: a });
+            dynVars.calibration_profiles[name] = prof;
+            renderCalibrationUi();
+            scheduleDynVarsSave();
+            renderViz();
+        });
+
         // Canvas resize redraw
         window.addEventListener("resize", () => renderViz());
 
@@ -1945,12 +2271,14 @@
         loadLastAngles();
         loadHotkeys();
         loadMode();
+        initCollapsibleSections();
         attachSelectOverwrite([
             "dl_step", "dl_iters",
             "dl_hip_dx", "dl_hip_y",
             "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr",
             "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
             "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
+            "cal_cmd_input", "cal_actual_input",
         ]);
         syncHotkeyInputs();
         attachHotkeyInputHandlers();
