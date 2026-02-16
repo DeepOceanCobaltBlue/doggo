@@ -54,6 +54,24 @@
         }
       ]
     },
+    "hip_standard_cw": {
+      "fit_mode": "linear_best_fit",
+      "measurement_mode": "hip_line_relative_deg",
+      "pairs": [
+        {
+          "commanded_deg": 163.0,
+          "actual_deg": 180.0
+        },
+        {
+          "commanded_deg": 135.0,
+          "actual_deg": 135.0
+        },
+        {
+          "commanded_deg": 58.0,
+          "actual_deg": 90.0
+        }
+      ]
+    },
     "identity": {
       "fit_mode": "linear_best_fit",
       "measurement_mode": "servo_physical_deg",
@@ -81,16 +99,30 @@
           "actual_deg": 180.0
         }
       ]
+    },
+    "knee_standard_cw": {
+      "fit_mode": "linear_best_fit",
+      "measurement_mode": "knee_relative_deg",
+      "pairs": [
+        {
+          "commanded_deg": 163.0,
+          "actual_deg": 180.0
+        },
+        {
+          "commanded_deg": 30.0,
+          "actual_deg": 90.0
+        }
+      ]
     }
   },
   "joint_calibration_map": {
-    "front_left_hip": "hip_standard",
-    "front_left_knee": "knee_standard",
-    "front_right_hip": "hip_standard",
+    "front_left_hip": "hip_standard_cw",
+    "front_left_knee": "knee_standard_cw",
+    "front_right_hip": "hip_standard_cw",
     "front_right_knee": "knee_standard",
-    "rear_left_hip": "hip_standard",
-    "rear_left_knee": "knee_standard",
-    "rear_right_hip": "hip_standard",
+    "rear_left_hip": "hip_standard_cw",
+    "rear_left_knee": "knee_standard_cw",
+    "rear_right_hip": "hip_standard_cw",
     "rear_right_knee": "knee_standard"
   }
 }
