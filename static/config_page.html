@@ -1418,8 +1418,9 @@
         function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
         function segmentRelativeDeg(a, b, c) {
-            // Relative angle between segments AB (thigh) and BC (shin), as line angle 0..180.
-            const ux = b.x - a.x, uy = b.y - a.y;
+            // Joint interior angle at B between thigh and shin:
+            // use vectors BA (knee->hip) and BC (knee->foot).
+            const ux = a.x - b.x, uy = a.y - b.y;
             const vx = c.x - b.x, vy = c.y - b.y;
             const un = Math.hypot(ux, uy);
             const vn = Math.hypot(vx, vy);
