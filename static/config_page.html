@@ -1754,10 +1754,6 @@
             return x;
         }
 
-        function cross2(a, b) {
-            return a.x * b.y - a.y * b.x;
-        }
-
         function angleFromHipUnit(u) {
             return normalizeDeg(Math.atan2(-u.y, -u.x) * 180.0 / Math.PI);
         }
@@ -1847,14 +1843,6 @@
             const Hf = { x: 0, y: hip_y };
             const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
 
-            // Reference world vectors from uncalibrated model preserve knee bend choices.
-            const ref_fh_abs = normalizeDeg(Number(j.front_hip.physical) + off_fh);
-            const ref_fk_abs = normalizeDeg(Number(j.front_knee.physical));
-            const ref_rh_abs = normalizeDeg(Number(j.rear_hip.physical) + off_rh);
-            const ref_rk_abs = normalizeDeg(Number(j.rear_knee.physical));
-            const ref_vf = rotateCcwDeg(unitFromKneeAngleDeg(ref_fk_abs), ref_fh_abs);
-            const ref_vr = rotateCcwDeg(unitFromKneeAngleDeg(ref_rk_abs), ref_rh_abs);
-
             const hipLine = (side === "left") ? { x: 1, y: 0 } : { x: -1, y: 0 };
 
             let out_fh = Number(j.front_hip.measured);
@@ -1878,8 +1866,7 @@
             if (j.front_knee.mode === "knee_relative_deg") {
                 const rel = normalizeDeg(Number(j.front_knee.measured) + off_fk);
                 const ba = { x: -uf.x, y: -uf.y }; // knee->hip
-                const bendSign = cross2(ba, ref_vf) >= 0 ? 1 : -1;
-                const vWorld = rotateCcwDeg(ba, bendSign * rel);
+                const vWorld = rotateCcwDeg(ba, rel);
                 const vLocal = rotateCcwDeg(vWorld, -a_fh);
                 const absFk = angleFromKneeLocalUnit(vLocal);
                 out_fk = normalizeDeg(absFk - off_fk);
@@ -1889,8 +1876,7 @@
             if (j.rear_knee.mode === "knee_relative_deg") {
                 const rel = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
                 const ba = { x: -ur.x, y: -ur.y }; // knee->hip
-                const bendSign = cross2(ba, ref_vr) >= 0 ? 1 : -1;
-                const vWorld = rotateCcwDeg(ba, bendSign * rel);
+                const vWorld = rotateCcwDeg(ba, rel);
                 const vLocal = rotateCcwDeg(vWorld, -a_rh);
                 const absRk = angleFromKneeLocalUnit(vLocal);
                 out_rk = normalizeDeg(absRk - off_rk);
