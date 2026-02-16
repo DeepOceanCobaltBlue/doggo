@@ -1754,16 +1754,8 @@
             return x;
         }
 
-        function dot2(a, b) {
-            return a.x * b.x + a.y * b.y;
-        }
-
         function cross2(a, b) {
             return a.x * b.y - a.y * b.x;
-        }
-
-        function chooseByRef(v1, v2, ref) {
-            return dot2(v1, ref) >= dot2(v2, ref) ? v1 : v2;
         }
 
         function angleFromHipUnit(u) {
@@ -1855,13 +1847,11 @@
             const Hf = { x: 0, y: hip_y };
             const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
 
-            // Reference world vectors from uncalibrated model preserve branch choices.
+            // Reference world vectors from uncalibrated model preserve knee bend choices.
             const ref_fh_abs = normalizeDeg(Number(j.front_hip.physical) + off_fh);
             const ref_fk_abs = normalizeDeg(Number(j.front_knee.physical));
             const ref_rh_abs = normalizeDeg(Number(j.rear_hip.physical) + off_rh);
             const ref_rk_abs = normalizeDeg(Number(j.rear_knee.physical));
-            const ref_uf = unitFromAngleDeg(ref_fh_abs);
-            const ref_ur = unitFromAngleDeg(ref_rh_abs);
             const ref_vf = rotateCcwDeg(unitFromKneeAngleDeg(ref_fk_abs), ref_fh_abs);
             const ref_vr = rotateCcwDeg(unitFromKneeAngleDeg(ref_rk_abs), ref_rh_abs);
 
@@ -1870,19 +1860,13 @@
             let out_fh = Number(j.front_hip.measured);
             if (j.front_hip.mode === "hip_line_relative_deg") {
                 const rel = normalizeDeg(Number(j.front_hip.measured) + off_fh);
-                const c1 = rotateCcwDeg(hipLine, rel);
-                const c2 = rotateCcwDeg(hipLine, -rel);
-                const use = chooseByRef(c1, c2, ref_uf);
-                out_fh = normalizeDeg(angleFromHipUnit(use) - off_fh);
+                out_fh = normalizeDeg(angleFromHipUnit(rotateCcwDeg(hipLine, rel)) - off_fh);
             }
 
             let out_rh = Number(j.rear_hip.measured);
             if (j.rear_hip.mode === "hip_line_relative_deg") {
                 const rel = normalizeDeg(Number(j.rear_hip.measured) + off_rh);
-                const c1 = rotateCcwDeg(hipLine, rel);
-                const c2 = rotateCcwDeg(hipLine, -rel);
-                const use = chooseByRef(c1, c2, ref_ur);
-                out_rh = normalizeDeg(angleFromHipUnit(use) - off_rh);
+                out_rh = normalizeDeg(angleFromHipUnit(rotateCcwDeg(hipLine, rel)) - off_rh);
             }
 
             const a_fh = normalizeDeg(out_fh + off_fh);
