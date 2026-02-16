@@ -53,7 +53,7 @@
       "channel": 1,
       "limits": {
         "deg_min": 45,
-        "deg_max": 190,
+        "deg_max": 270,
         "invert": false
       }
     },
