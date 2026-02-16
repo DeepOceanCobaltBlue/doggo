@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import math
 import sys
 import types
 import unittest
@@ -263,6 +264,32 @@ class ConfigApiContracts(unittest.TestCase):
         _, y_hip = module._unit_from_angle_deg(60)
         _, y_knee = module._unit_from_knee_angle_deg(60)
         self.assertEqual(round(y_hip, 6), round(-y_knee, 6))
+
+    def test_sim_keeps_knee_joint_angle_when_only_hip_changes(self) -> None:
+        module = self.config_app
+        dv = module._default_dyn_vars()
+
+        def interior_knee_deg(front_caps):
+            thigh = next(c for c in front_caps if c.name == "front_thigh")
+            shin = next(c for c in front_caps if c.name == "front_shin")
+            # Interior angle at knee between (knee->hip) and (knee->foot)
+            ux = thigh.a[0] - thigh.b[0]
+            uy = thigh.a[1] - thigh.b[1]
+            vx = shin.b[0] - shin.a[0]
+            vy = shin.b[1] - shin.a[1]
+            un = math.hypot(ux, uy)
+            vn = math.hypot(vx, vy)
+            dot = (ux * vx + uy * vy) / (un * vn)
+            dot = max(-1.0, min(1.0, dot))
+            return math.degrees(math.acos(dot))
+
+        angles1 = {"front_hip": 120.0, "front_knee": 135.0, "rear_hip": 135.0, "rear_knee": 135.0}
+        angles2 = {"front_hip": 170.0, "front_knee": 135.0, "rear_hip": 135.0, "rear_knee": 135.0}
+
+        front1, _ = module._build_leg_capsules_for_side(dv, "left", angles1)
+        front2, _ = module._build_leg_capsules_for_side(dv, "left", angles2)
+
+        self.assertAlmostEqual(interior_knee_deg(front1), interior_knee_deg(front2), places=6)
 
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")

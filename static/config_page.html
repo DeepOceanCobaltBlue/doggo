@@ -631,24 +631,7 @@
                     </div>
                 </div>
                 <div class="grid2">
-                    <div class="field">
-                        <label class="muted">Toe line vs front shin</label>
-                        <input id="geoToeFront" type="text" value="—" readonly />
-                    </div>
-                    <div class="field">
-                        <label class="muted">Toe line vs rear shin</label>
-                        <input id="geoToeRear" type="text" value="—" readonly />
-                    </div>
-                </div>
-                <div class="grid2">
-                    <div class="field">
-                        <label class="muted">Front thigh vs shin</label>
-                        <input id="geoRelFront" type="text" value="—" readonly />
-                    </div>
-                    <div class="field">
-                        <label class="muted">Rear thigh vs shin</label>
-                        <input id="geoRelRear" type="text" value="—" readonly />
-                    </div>
+                    <div class="muted">Toe-line and relative-angle readouts removed.</div>
                 </div>
             </div>
 
@@ -1417,18 +1400,6 @@
         function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
         function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-        function segmentRelativeDeg(a, b, c) {
-            // Joint interior angle at B between thigh and shin:
-            // use vectors BA (knee->hip) and BC (knee->foot).
-            const ux = a.x - b.x, uy = a.y - b.y;
-            const vx = c.x - b.x, vy = c.y - b.y;
-            const un = Math.hypot(ux, uy);
-            const vn = Math.hypot(vx, vy);
-            if (un < 1e-9 || vn < 1e-9) return 0;
-            const dot = (ux * vx + uy * vy) / (un * vn);
-            return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
-        }
-
         function angleBetweenSegmentsDeg(a0, a1, b0, b1) {
             const ux = a1.x - a0.x, uy = a1.y - a0.y;
             const vx = b1.x - b0.x, vy = b1.y - b0.y;
@@ -1437,6 +1408,13 @@
             if (un < 1e-9 || vn < 1e-9) return 0;
             const dot = (ux * vx + uy * vy) / (un * vn);
             return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
+        }
+
+        function rotateCcwDeg(v, deg) {
+            const r = degToRad(deg);
+            const c = Math.cos(r);
+            const s = Math.sin(r);
+            return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
         }
 
         function getSideAngles(side, state) {
@@ -1499,7 +1477,7 @@
             const Hf = { x: 0, y: hip_y };
             const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
 
-            // absolute segment angles (servo angle + offset)
+            // Hip is a world direction. Knee is interpreted in hip-local frame.
             const a_fh = Number(a.front_hip) + off_fh;
             const a_fk = Number(a.front_knee) + off_fk;
             const a_rh = Number(a.rear_hip) + off_rh;
@@ -1507,32 +1485,25 @@
 
             const uf = unitFromAngleDeg(a_fh);
             const Kf = add(Hf, mul(uf, Ltf));
-            const vf = unitFromKneeAngleDeg(a_fk);
+            const vf = rotateCcwDeg(unitFromKneeAngleDeg(a_fk), a_fh);
             const Ff = add(Kf, mul(vf, Lsf));
 
             const ur = unitFromAngleDeg(a_rh);
             const Kr = add(Hr, mul(ur, Ltr));
-            const vr = unitFromKneeAngleDeg(a_rk);
+            const vr = rotateCcwDeg(unitFromKneeAngleDeg(a_rk), a_rh);
             const Fr = add(Kr, mul(vr, Lsr));
 
-            const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
-            const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
             const hipVsFrontThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hf, Kf);
             const hipVsRearThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hr, Kr);
-            const toeVsFrontShinDeg = angleBetweenSegmentsDeg(Ff, Fr, Kf, Ff);
-            const toeVsRearShinDeg = angleBetweenSegmentsDeg(Ff, Fr, Kr, Fr);
 
             return {
                 side,
                 anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
                 angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
                 simAngles: { a_fh, a_fk, a_rh, a_rk },
-                relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
                 baselines: {
                     hip_vs_front_thigh_deg: hipVsFrontThighDeg,
                     hip_vs_rear_thigh_deg: hipVsRearThighDeg,
-                    toe_vs_front_shin_deg: toeVsFrontShinDeg,
-                    toe_vs_rear_shin_deg: toeVsRearShinDeg,
                 },
                 lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr },
                 radii: { r_ft, r_fs, r_rt, r_rs },
@@ -1566,10 +1537,6 @@
                 poseInfo.textContent = "—";
                 setGeoReadout("geoHipFront", NaN);
                 setGeoReadout("geoHipRear", NaN);
-                setGeoReadout("geoToeFront", NaN);
-                setGeoReadout("geoToeRear", NaN);
-                setGeoReadout("geoRelFront", NaN);
-                setGeoReadout("geoRelRear", NaN);
                 return;
             }
 
@@ -1691,7 +1658,6 @@
 
             // highlighted guide lines for alignment checks
             drawGuideLine(Hf, Hr, "#57d4ff", "Hip line");
-            drawGuideLine(Ff, Fr, "#ffd166", "Toe line");
 
             // joints
             drawJoint(Hf, 0.9);
@@ -1738,10 +1704,6 @@
 
             setGeoReadout("geoHipFront", g.baselines.hip_vs_front_thigh_deg);
             setGeoReadout("geoHipRear", g.baselines.hip_vs_rear_thigh_deg);
-            setGeoReadout("geoToeFront", g.baselines.toe_vs_front_shin_deg);
-            setGeoReadout("geoToeRear", g.baselines.toe_vs_rear_shin_deg);
-            setGeoReadout("geoRelFront", g.relative.front_deg);
-            setGeoReadout("geoRelRear", g.relative.rear_deg);
 
         }
 

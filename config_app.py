@@ -442,11 +442,23 @@ def _unit_from_angle_deg(deg: float) -> Tuple[float, float]:
 
 def _unit_from_knee_angle_deg(deg: float) -> Tuple[float, float]:
     """
-    Knee joints use opposite winding from hips in the sim model.
-    Keep the same front/back convention (x axis), but flip angular winding.
+    Knee command direction in a hip-local frame.
+    This keeps opposite winding from hips for knee command semantics.
+    Caller rotates this local vector by hip angle to get world direction.
     """
     r = _deg_to_rad(deg)
     return (-math.cos(r), math.sin(r))
+
+
+def _rotate_ccw_deg(v: Tuple[float, float], deg: float) -> Tuple[float, float]:
+    """
+    Rotate vector by +deg counter-clockwise in world coordinates.
+    """
+    r = _deg_to_rad(deg)
+    c = math.cos(r)
+    s = math.sin(r)
+    x, y = v
+    return (x * c - y * s, x * s + y * c)
 
 
 def _pt_add(a: Tuple[float, float], b: Tuple[float, float]) -> Tuple[float, float]:
@@ -576,9 +588,11 @@ def _build_leg_capsules_for_side(
         - (+hip_dx, hip_y) for left side (front appears left of rear in view)
         - (-hip_dx, hip_y) for right side (front appears right of rear in view)
 
-    Angles are absolute directions (servo-angle terms + offsets):
-      - hip angle -> thigh direction
-      - knee angle -> shin direction
+    Angles are interpreted as:
+      - hip angle -> thigh world direction
+      - knee angle -> shin direction in hip-local frame
+    The local shin vector is then rotated with hip so hip motion carries
+    the full lower leg while preserving commanded knee relation.
     """
     s = dv[side]
     hip_dx = float(s["hip_dx_mm"])
@@ -620,15 +634,17 @@ def _build_leg_capsules_for_side(
     # FRONT: hip -> knee
     uf = _unit_from_angle_deg(a_f_hip)
     Kf = _pt_add(Hf, _pt_mul(uf, Ltf))
-    # FRONT: knee -> foot (knee winding differs from hip winding)
-    vf = _unit_from_knee_angle_deg(a_f_knee)
+    # FRONT: knee->foot uses knee local vector rotated by hip world angle
+    vf_local = _unit_from_knee_angle_deg(a_f_knee)
+    vf = _rotate_ccw_deg(vf_local, a_f_hip)
     Ff = _pt_add(Kf, _pt_mul(vf, Lsf))
 
     # REAR: hip -> knee
     ur = _unit_from_angle_deg(a_r_hip)
     Kr = _pt_add(Hr, _pt_mul(ur, Ltr))
-    # REAR: knee -> foot (knee winding differs from hip winding)
-    vr = _unit_from_knee_angle_deg(a_r_knee)
+    # REAR: knee->foot uses knee local vector rotated by hip world angle
+    vr_local = _unit_from_knee_angle_deg(a_r_knee)
+    vr = _rotate_ccw_deg(vr_local, a_r_hip)
     Fr = _pt_add(Kr, _pt_mul(vr, Lsr))
 
     front_caps = [
