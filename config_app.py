@@ -949,8 +949,7 @@ def _angles_pack_for_side_from_state(
     out_front_knee = float(cal["front_knee"][1])
     mode_fk = cal["front_knee"][0]
     if mode_fk == "knee_relative_deg":
-        rel_raw = _normalize_deg(float(cal["front_knee"][1]) + off_fk)
-        rel = rel_raw if rel_raw <= 180.0 else (360.0 - rel_raw)
+        rel = _normalize_deg(float(cal["front_knee"][1]) + off_fk)
         ba = (-uf[0], -uf[1])  # knee->hip
         bend_sign = 1.0 if _cross(ba, ref_vf) >= 0.0 else -1.0
         v_world = _rotate_ccw_deg(ba, bend_sign * rel)
@@ -961,8 +960,7 @@ def _angles_pack_for_side_from_state(
     out_rear_knee = float(cal["rear_knee"][1])
     mode_rk = cal["rear_knee"][0]
     if mode_rk == "knee_relative_deg":
-        rel_raw = _normalize_deg(float(cal["rear_knee"][1]) + off_rk)
-        rel = rel_raw if rel_raw <= 180.0 else (360.0 - rel_raw)
+        rel = _normalize_deg(float(cal["rear_knee"][1]) + off_rk)
         ba = (-ur[0], -ur[1])  # knee->hip
         bend_sign = 1.0 if _cross(ba, ref_vr) >= 0.0 else -1.0
         v_world = _rotate_ccw_deg(ba, bend_sign * rel)

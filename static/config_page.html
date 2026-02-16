@@ -1892,8 +1892,7 @@
 
             let out_fk = Number(j.front_knee.measured);
             if (j.front_knee.mode === "knee_relative_deg") {
-                const relRaw = normalizeDeg(Number(j.front_knee.measured) + off_fk);
-                const rel = relRaw <= 180 ? relRaw : (360 - relRaw);
+                const rel = normalizeDeg(Number(j.front_knee.measured) + off_fk);
                 const ba = { x: -uf.x, y: -uf.y }; // knee->hip
                 const bendSign = cross2(ba, ref_vf) >= 0 ? 1 : -1;
                 const vWorld = rotateCcwDeg(ba, bendSign * rel);
@@ -1904,8 +1903,7 @@
 
             let out_rk = Number(j.rear_knee.measured);
             if (j.rear_knee.mode === "knee_relative_deg") {
-                const relRaw = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
-                const rel = relRaw <= 180 ? relRaw : (360 - relRaw);
+                const rel = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
                 const ba = { x: -ur.x, y: -ur.y }; // knee->hip
                 const bendSign = cross2(ba, ref_vr) >= 0 ? 1 : -1;
                 const vWorld = rotateCcwDeg(ba, bendSign * rel);
