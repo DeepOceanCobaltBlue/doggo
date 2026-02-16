@@ -282,6 +282,7 @@ def _default_dyn_side() -> Dict[str, Any]:
 def _default_calibration_profile() -> Dict[str, Any]:
     return {
         "fit_mode": "linear_best_fit",
+        "measurement_mode": "servo_physical_deg",
         "pairs": [
             {"commanded_deg": 0.0, "actual_deg": 0.0},
             {"commanded_deg": 270.0, "actual_deg": 270.0},
@@ -289,8 +290,33 @@ def _default_calibration_profile() -> Dict[str, Any]:
     }
 
 
+def _default_hip_standard_profile() -> Dict[str, Any]:
+    return {
+        "fit_mode": "linear_best_fit",
+        "measurement_mode": "hip_line_relative_deg",
+        "pairs": [
+            {"commanded_deg": 163.0, "actual_deg": 90.0},
+            {"commanded_deg": 135.0, "actual_deg": 135.0},
+        ],
+    }
+
+
+def _default_knee_standard_profile() -> Dict[str, Any]:
+    return {
+        "fit_mode": "linear_best_fit",
+        "measurement_mode": "knee_relative_deg",
+        "pairs": [
+            {"commanded_deg": 163.0, "actual_deg": 90.0},
+            {"commanded_deg": 30.0, "actual_deg": 180.0},
+        ],
+    }
+
+
 def _default_joint_calibration_map() -> Dict[str, str]:
-    return {loc.key: "identity" for loc in LOCATIONS}
+    out: Dict[str, str] = {}
+    for loc in LOCATIONS:
+        out[loc.key] = "knee_standard" if loc.key.endswith("_knee") else "hip_standard"
+    return out
 
 
 def _default_dyn_vars() -> Dict[str, Any]:
@@ -303,6 +329,8 @@ def _default_dyn_vars() -> Dict[str, Any]:
         "right": _default_dyn_side(),
         "calibration_profiles": {
             "identity": _default_calibration_profile(),
+            "hip_standard": _default_hip_standard_profile(),
+            "knee_standard": _default_knee_standard_profile(),
         },
         "joint_calibration_map": _default_joint_calibration_map(),
     }
@@ -363,6 +391,9 @@ def _load_dyn_vars() -> Dict[str, Any]:
                     continue
                 if not isinstance(prof_raw, dict):
                     continue
+                mode = str(prof_raw.get("measurement_mode", "servo_physical_deg")).strip().lower()
+                if mode not in ("servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"):
+                    mode = "servo_physical_deg"
                 pairs_in = prof_raw.get("pairs", [])
                 pairs_out: List[Dict[str, float]] = []
                 if isinstance(pairs_in, list):
@@ -379,11 +410,16 @@ def _load_dyn_vars() -> Dict[str, Any]:
                         )
                 profiles_out[name] = {
                     "fit_mode": "linear_best_fit",
+                    "measurement_mode": mode,
                     "pairs": pairs_out,
                 }
 
         if "identity" not in profiles_out:
             profiles_out["identity"] = _default_calibration_profile()
+        if "hip_standard" not in profiles_out:
+            profiles_out["hip_standard"] = _default_hip_standard_profile()
+        if "knee_standard" not in profiles_out:
+            profiles_out["knee_standard"] = _default_knee_standard_profile()
         out["calibration_profiles"] = profiles_out
 
         # per-joint profile assignments
@@ -442,8 +478,8 @@ def _linear_fit_from_pairs(pairs: List[Dict[str, float]]) -> Tuple[Optional[floa
     return float(m), float(b)
 
 
-def _build_calibration_fit_cache(dv: Dict[str, Any]) -> Dict[str, Optional[Tuple[float, float]]]:
-    out: Dict[str, Optional[Tuple[float, float]]] = {}
+def _build_calibration_fit_cache(dv: Dict[str, Any]) -> Dict[str, Optional[Tuple[float, float, str]]]:
+    out: Dict[str, Optional[Tuple[float, float, str]]] = {}
     profiles = dv.get("calibration_profiles", {})
     if not isinstance(profiles, dict):
         return out
@@ -451,12 +487,15 @@ def _build_calibration_fit_cache(dv: Dict[str, Any]) -> Dict[str, Optional[Tuple
         if not isinstance(prof, dict):
             out[str(name)] = None
             continue
+        mode = str(prof.get("measurement_mode", "servo_physical_deg")).strip().lower()
+        if mode not in ("servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"):
+            mode = "servo_physical_deg"
         pairs = prof.get("pairs", [])
         if not isinstance(pairs, list):
             out[str(name)] = None
             continue
         m, b = _linear_fit_from_pairs([p for p in pairs if isinstance(p, dict)])
-        out[str(name)] = (m, b) if m is not None and b is not None else None
+        out[str(name)] = (m, b, mode) if m is not None and b is not None else None
     return out
 
 
@@ -464,11 +503,11 @@ def _apply_sim_calibration_to_physical(
     loc_key: str,
     physical_deg: float,
     dv: Dict[str, Any],
-    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
-) -> float:
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float, str]]]] = None,
+) -> Tuple[str, float]:
     profiles = dv.get("calibration_profiles", {})
     if not isinstance(profiles, dict):
-        return float(physical_deg)
+        return "servo_physical_deg", float(physical_deg)
 
     jmap = dv.get("joint_calibration_map", {})
     if not isinstance(jmap, dict):
@@ -477,7 +516,7 @@ def _apply_sim_calibration_to_physical(
     if prof_name not in profiles:
         prof_name = "identity"
     if prof_name not in profiles:
-        return float(physical_deg)
+        return "servo_physical_deg", float(physical_deg)
 
     fit = None
     if fit_cache is not None:
@@ -485,18 +524,21 @@ def _apply_sim_calibration_to_physical(
     else:
         prof = profiles.get(prof_name, {})
         if isinstance(prof, dict):
+            mode = str(prof.get("measurement_mode", "servo_physical_deg")).strip().lower()
+            if mode not in ("servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"):
+                mode = "servo_physical_deg"
             pairs = prof.get("pairs", [])
             if isinstance(pairs, list):
                 m, b = _linear_fit_from_pairs([p for p in pairs if isinstance(p, dict)])
                 if m is not None and b is not None:
-                    fit = (m, b)
+                    fit = (m, b, mode)
 
     if fit is None:
-        return float(physical_deg)
+        return "servo_physical_deg", float(physical_deg)
 
-    m, b = fit
+    m, b, mode = fit
     predicted = float(m * float(physical_deg) + b)
-    return float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, predicted)))
+    return mode, float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, predicted)))
 
 
 # -----------------------------
@@ -795,59 +837,148 @@ def _build_leg_capsules_for_side(
     return front_caps, rear_caps
 
 
-def _effective_sim_angle_from_state(
-    loc_key: str,
-    state_angles: Dict[str, int],
-    dv: Optional[Dict[str, Any]] = None,
-    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
-) -> float:
-    """
-    Convert stored logical state angle to physical simulation angle.
-    Simulation/collision should reflect actual servo output orientation.
-    """
+def _angle_from_hip_unit(u: Tuple[float, float]) -> float:
+    return _normalize_deg(math.degrees(math.atan2(-u[1], -u[0])))
+
+
+def _angle_from_knee_local_unit(v_local: Tuple[float, float]) -> float:
+    return _normalize_deg(math.degrees(math.atan2(v_local[1], -v_local[0])))
+
+
+def _choose_vector_by_reference(
+    v1: Tuple[float, float],
+    v2: Tuple[float, float],
+    ref: Tuple[float, float],
+) -> Tuple[float, float]:
+    d1 = _dot(v1, ref)
+    d2 = _dot(v2, ref)
+    return v1 if d1 >= d2 else v2
+
+
+def _physical_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
     raw = int(state_angles.get(loc_key, 135))
     limits = _get_limits(_draft_cfg, loc_key)
     _, physical = resolve_logical_and_physical_angle(raw, limits)
-    model = dv if isinstance(dv, dict) else _dyn_vars
-    predicted = _apply_sim_calibration_to_physical(
-        loc_key=loc_key,
-        physical_deg=float(physical),
-        dv=model,
-        fit_cache=fit_cache,
-    )
-    return float(predicted)
+    return float(physical)
 
 
 def _angles_pack_for_side_from_state(
     side: str,
     state_angles: Dict[str, int],
     dv: Optional[Dict[str, Any]] = None,
-    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float, str]]]] = None,
 ) -> Dict[str, float]:
     """
     Extract 4 joint angles for the side from the full location-key->angle dict.
     """
+    model = dv if isinstance(dv, dict) else _dyn_vars
+    cache = fit_cache if fit_cache is not None else _build_calibration_fit_cache(model)
+    side_vars = model[side]
+
     if side == "left":
-        return {
-            "front_hip": _effective_sim_angle_from_state("front_left_hip", state_angles, dv=dv, fit_cache=fit_cache),
-            "front_knee": _effective_sim_angle_from_state("front_left_knee", state_angles, dv=dv, fit_cache=fit_cache),
-            "rear_hip": _effective_sim_angle_from_state("rear_left_hip", state_angles, dv=dv, fit_cache=fit_cache),
-            "rear_knee": _effective_sim_angle_from_state("rear_left_knee", state_angles, dv=dv, fit_cache=fit_cache),
+        keys = {
+            "front_hip": "front_left_hip",
+            "front_knee": "front_left_knee",
+            "rear_hip": "rear_left_hip",
+            "rear_knee": "rear_left_knee",
         }
     else:
-        return {
-            "front_hip": _effective_sim_angle_from_state("front_right_hip", state_angles, dv=dv, fit_cache=fit_cache),
-            "front_knee": _effective_sim_angle_from_state("front_right_knee", state_angles, dv=dv, fit_cache=fit_cache),
-            "rear_hip": _effective_sim_angle_from_state("rear_right_hip", state_angles, dv=dv, fit_cache=fit_cache),
-            "rear_knee": _effective_sim_angle_from_state("rear_right_knee", state_angles, dv=dv, fit_cache=fit_cache),
+        keys = {
+            "front_hip": "front_right_hip",
+            "front_knee": "front_right_knee",
+            "rear_hip": "rear_right_hip",
+            "rear_knee": "rear_right_knee",
         }
+
+    # Base physical (driver semantics, includes invert) for reference motion direction.
+    phys = {k: _physical_sim_angle_from_state(loc, state_angles) for k, loc in keys.items()}
+    cal: Dict[str, Tuple[str, float]] = {}
+    for k, loc in keys.items():
+        cal[k] = _apply_sim_calibration_to_physical(loc, phys[k], model, fit_cache=cache)
+
+    off_fh = float(side_vars["front_hip_offset_deg"])
+    off_fk = float(side_vars["front_knee_offset_deg"])
+    off_rh = float(side_vars["rear_hip_offset_deg"])
+    off_rk = float(side_vars["rear_knee_offset_deg"])
+
+    # Reference world vectors from uncalibrated model preserve branch/winding choice.
+    ref_fh_abs = _normalize_deg(phys["front_hip"] + off_fh)
+    ref_fk_abs = _normalize_deg(phys["front_knee"] + off_fk)
+    ref_rh_abs = _normalize_deg(phys["rear_hip"] + off_rh)
+    ref_rk_abs = _normalize_deg(phys["rear_knee"] + off_rk)
+    ref_uf = _unit_from_angle_deg(ref_fh_abs)
+    ref_ur = _unit_from_angle_deg(ref_rh_abs)
+    ref_vf = _rotate_ccw_deg(_unit_from_knee_angle_deg(ref_fk_abs), ref_fh_abs)
+    ref_vr = _rotate_ccw_deg(_unit_from_knee_angle_deg(ref_rk_abs), ref_rh_abs)
+
+    # Hip line points from front hip to rear hip.
+    hip_line = (1.0, 0.0) if side == "left" else (-1.0, 0.0)
+
+    # Solve hip output angle terms (pre-offset) first.
+    out_front_hip = float(cal["front_hip"][1])
+    mode_fh = cal["front_hip"][0]
+    if mode_fh == "hip_line_relative_deg":
+        rel = _normalize_deg(float(cal["front_hip"][1]) + off_fh)
+        c1 = _rotate_ccw_deg(hip_line, rel)
+        c2 = _rotate_ccw_deg(hip_line, -rel)
+        use = _choose_vector_by_reference(c1, c2, ref_uf)
+        abs_fh = _angle_from_hip_unit(use)
+        out_front_hip = _normalize_deg(abs_fh - off_fh)
+
+    out_rear_hip = float(cal["rear_hip"][1])
+    mode_rh = cal["rear_hip"][0]
+    if mode_rh == "hip_line_relative_deg":
+        rel = _normalize_deg(float(cal["rear_hip"][1]) + off_rh)
+        c1 = _rotate_ccw_deg(hip_line, rel)
+        c2 = _rotate_ccw_deg(hip_line, -rel)
+        use = _choose_vector_by_reference(c1, c2, ref_ur)
+        abs_rh = _angle_from_hip_unit(use)
+        out_rear_hip = _normalize_deg(abs_rh - off_rh)
+
+    # Final thigh vectors after hip solve.
+    a_fh = _normalize_deg(out_front_hip + off_fh)
+    a_rh = _normalize_deg(out_rear_hip + off_rh)
+    uf = _unit_from_angle_deg(a_fh)
+    ur = _unit_from_angle_deg(a_rh)
+
+    # Solve knee output angle terms (pre-offset).
+    out_front_knee = float(cal["front_knee"][1])
+    mode_fk = cal["front_knee"][0]
+    if mode_fk == "knee_relative_deg":
+        rel = _normalize_deg(float(cal["front_knee"][1]) + off_fk)
+        ba = (-uf[0], -uf[1])  # knee->hip
+        c1 = _rotate_ccw_deg(ba, rel)
+        c2 = _rotate_ccw_deg(ba, -rel)
+        v_world = _choose_vector_by_reference(c1, c2, ref_vf)
+        v_local = _rotate_ccw_deg(v_world, -a_fh)
+        abs_fk = _angle_from_knee_local_unit(v_local)
+        out_front_knee = _normalize_deg(abs_fk - off_fk)
+
+    out_rear_knee = float(cal["rear_knee"][1])
+    mode_rk = cal["rear_knee"][0]
+    if mode_rk == "knee_relative_deg":
+        rel = _normalize_deg(float(cal["rear_knee"][1]) + off_rk)
+        ba = (-ur[0], -ur[1])  # knee->hip
+        c1 = _rotate_ccw_deg(ba, rel)
+        c2 = _rotate_ccw_deg(ba, -rel)
+        v_world = _choose_vector_by_reference(c1, c2, ref_vr)
+        v_local = _rotate_ccw_deg(v_world, -a_rh)
+        abs_rk = _angle_from_knee_local_unit(v_local)
+        out_rear_knee = _normalize_deg(abs_rk - off_rk)
+
+    return {
+        "front_hip": float(out_front_hip),
+        "front_knee": float(out_front_knee),
+        "rear_hip": float(out_rear_hip),
+        "rear_knee": float(out_rear_knee),
+    }
 
 
 def _predict_collision_for_side(
     dv: Dict[str, Any],
     side: str,
     state_angles: Dict[str, int],
-    fit_cache: Optional[Dict[str, Optional[Tuple[float, float]]]] = None,
+    fit_cache: Optional[Dict[str, Optional[Tuple[float, float, str]]]] = None,
 ) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Returns (collides, details) for the current pose on a given side.
@@ -1164,6 +1295,9 @@ def api_set_dynamic_limits():
                 return jsonify({"ok": False, "error": f"invalid profile name '{name}'"}), 400
             if not isinstance(prof_raw, dict):
                 return jsonify({"ok": False, "error": f"profile '{name}' must be an object"}), 400
+            mode = str(prof_raw.get("measurement_mode", "servo_physical_deg")).strip().lower()
+            if mode not in ("servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"):
+                return jsonify({"ok": False, "error": f"profile '{name}'.measurement_mode is invalid"}), 400
             pairs_raw = prof_raw.get("pairs", [])
             if not isinstance(pairs_raw, list):
                 return jsonify({"ok": False, "error": f"profile '{name}'.pairs must be an array"}), 400
@@ -1179,7 +1313,7 @@ def api_set_dynamic_limits():
                         "actual_deg": float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, a))),
                     }
                 )
-            next_profiles[name] = {"fit_mode": "linear_best_fit", "pairs": pairs_out}
+            next_profiles[name] = {"fit_mode": "linear_best_fit", "measurement_mode": mode, "pairs": pairs_out}
         if "identity" not in next_profiles:
             next_profiles["identity"] = _default_calibration_profile()
         merged["calibration_profiles"] = next_profiles
@@ -1208,6 +1342,10 @@ def api_set_dynamic_limits():
         profiles = {"identity": _default_calibration_profile()}
     if "identity" not in profiles:
         profiles["identity"] = _default_calibration_profile()
+    if "hip_standard" not in profiles:
+        profiles["hip_standard"] = _default_hip_standard_profile()
+    if "knee_standard" not in profiles:
+        profiles["knee_standard"] = _default_knee_standard_profile()
     merged["calibration_profiles"] = profiles
 
     jmap = merged.get("joint_calibration_map", {})
