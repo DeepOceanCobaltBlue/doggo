@@ -245,7 +245,7 @@ class ConfigApiContracts(unittest.TestCase):
             "rear_right_hip": 120,
             "rear_right_knee": 170,   # invert=true in default config
         }
-        pack = module._angles_pack_for_side_from_state("right", state)
+        pack = module._angles_pack_for_side_from_state("right", state, dv=module._default_dyn_vars())
         self.assertEqual(pack["front_hip"], 100.0)
         self.assertEqual(pack["front_knee"], 90.0)
         self.assertEqual(pack["rear_hip"], 120.0)
@@ -290,6 +290,104 @@ class ConfigApiContracts(unittest.TestCase):
         front2, _ = module._build_leg_capsules_for_side(dv, "left", angles2)
 
         self.assertAlmostEqual(interior_knee_deg(front1), interior_knee_deg(front2), places=6)
+
+    def test_sim_calibration_profile_maps_predicted_angle_only(self) -> None:
+        module = self.config_app
+        state = {"front_left_hip": 200}
+        dv = module._default_dyn_vars()
+        dv["calibration_profiles"]["half"] = {
+            "fit_mode": "linear_best_fit",
+            "pairs": [
+                {"commanded_deg": 0.0, "actual_deg": 0.0},
+                {"commanded_deg": 200.0, "actual_deg": 100.0},
+            ],
+        }
+        dv["joint_calibration_map"]["front_left_hip"] = "half"
+        pack = module._angles_pack_for_side_from_state("left", state, dv=dv)
+        limits = module._get_limits(module._draft_cfg, "front_left_hip")
+        _logical, physical = module.resolve_logical_and_physical_angle(200, limits)
+        self.assertEqual(pack["front_hip"], float(physical) * 0.5)
+
+    def test_dynamic_limits_accepts_calibration_schema(self) -> None:
+        client = self.config_app.app.test_client()
+        cur = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]
+        try:
+            update = json.loads(json.dumps(cur))
+            update["calibration_profiles"] = {
+                "identity": {"fit_mode": "linear_best_fit", "pairs": [{"commanded_deg": 0, "actual_deg": 0}]},
+                "hips": {
+                    "fit_mode": "linear_best_fit",
+                    "pairs": [
+                        {"commanded_deg": 0, "actual_deg": 0},
+                        {"commanded_deg": 180, "actual_deg": 170},
+                    ],
+                },
+            }
+            update["joint_calibration_map"] = {
+                "front_left_hip": "hips",
+                "front_right_hip": "hips",
+                "front_left_knee": "identity",
+                "front_right_knee": "identity",
+                "rear_left_hip": "hips",
+                "rear_right_hip": "hips",
+                "rear_left_knee": "identity",
+                "rear_right_knee": "identity",
+            }
+            resp = client.post("/api/dynamic_limits", json={"dynamic_limits": update})
+            self.assertEqual(resp.status_code, 200)
+            body = resp.get_json()["dynamic_limits"]
+            self.assertIn("calibration_profiles", body)
+            self.assertIn("joint_calibration_map", body)
+            self.assertEqual(body["joint_calibration_map"]["front_left_hip"], "hips")
+        finally:
+            restore = client.post("/api/dynamic_limits", json={"dynamic_limits": cur})
+            self.assertEqual(restore.status_code, 200)
+
+    def test_calibration_does_not_change_hardware_command_output(self) -> None:
+        client = self.config_app.app.test_client()
+        module = self.config_app
+
+        class _StubPCA:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def set_channel_angle_deg(self, channel, angle_deg, limits=None):
+                self.calls.append((channel, angle_deg, limits))
+
+        original_pca = module.pca
+        original_dyn = json.loads(json.dumps(module._dyn_vars))
+        stub = _StubPCA()
+        module.pca = stub
+        try:
+            dv = json.loads(json.dumps(module._dyn_vars))
+            dv["calibration_profiles"] = {
+                "identity": {"fit_mode": "linear_best_fit", "pairs": [{"commanded_deg": 0, "actual_deg": 0}]},
+                "aggressive": {
+                    "fit_mode": "linear_best_fit",
+                    "pairs": [
+                        {"commanded_deg": 0, "actual_deg": 0},
+                        {"commanded_deg": 180, "actual_deg": 90},
+                    ],
+                },
+            }
+            dv["joint_calibration_map"] = {k: "identity" for k in module._dyn_vars.get("joint_calibration_map", {}).keys()}
+            if not dv["joint_calibration_map"]:
+                dv["joint_calibration_map"] = {loc.key: "identity" for loc in module.LOCATIONS}
+            dv["joint_calibration_map"]["front_right_hip"] = "aggressive"
+            module._dyn_vars = dv
+
+            cmd = client.post(
+                "/api/command",
+                json={"location": "front_right_hip", "angle_deg": 180, "mode": "normal"},
+            )
+            self.assertEqual(cmd.status_code, 200)
+            data = cmd.get_json()
+            self.assertEqual(len(stub.calls), 1)
+            _ch, sent_angle, _limits = stub.calls[0]
+            self.assertEqual(sent_angle, data["applied_angle"])
+        finally:
+            module._dyn_vars = original_dyn
+            module.pca = original_pca
 
 
 @unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
