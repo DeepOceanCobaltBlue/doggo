@@ -1758,6 +1758,10 @@
             return a.x * b.x + a.y * b.y;
         }
 
+        function cross2(a, b) {
+            return a.x * b.y - a.y * b.x;
+        }
+
         function chooseByRef(v1, v2, ref) {
             return dot2(v1, ref) >= dot2(v2, ref) ? v1 : v2;
         }
@@ -1853,9 +1857,9 @@
 
             // Reference world vectors from uncalibrated model preserve branch choices.
             const ref_fh_abs = normalizeDeg(Number(j.front_hip.physical) + off_fh);
-            const ref_fk_abs = normalizeDeg(Number(j.front_knee.physical) + off_fk);
+            const ref_fk_abs = normalizeDeg(Number(j.front_knee.physical));
             const ref_rh_abs = normalizeDeg(Number(j.rear_hip.physical) + off_rh);
-            const ref_rk_abs = normalizeDeg(Number(j.rear_knee.physical) + off_rk);
+            const ref_rk_abs = normalizeDeg(Number(j.rear_knee.physical));
             const ref_uf = unitFromAngleDeg(ref_fh_abs);
             const ref_ur = unitFromAngleDeg(ref_rh_abs);
             const ref_vf = rotateCcwDeg(unitFromKneeAngleDeg(ref_fk_abs), ref_fh_abs);
@@ -1888,11 +1892,11 @@
 
             let out_fk = Number(j.front_knee.measured);
             if (j.front_knee.mode === "knee_relative_deg") {
-                const rel = normalizeDeg(Number(j.front_knee.measured) + off_fk);
+                const relRaw = normalizeDeg(Number(j.front_knee.measured) + off_fk);
+                const rel = relRaw <= 180 ? relRaw : (360 - relRaw);
                 const ba = { x: -uf.x, y: -uf.y }; // knee->hip
-                const c1 = rotateCcwDeg(ba, rel);
-                const c2 = rotateCcwDeg(ba, -rel);
-                const vWorld = chooseByRef(c1, c2, ref_vf);
+                const bendSign = cross2(ba, ref_vf) >= 0 ? 1 : -1;
+                const vWorld = rotateCcwDeg(ba, bendSign * rel);
                 const vLocal = rotateCcwDeg(vWorld, -a_fh);
                 const absFk = angleFromKneeLocalUnit(vLocal);
                 out_fk = normalizeDeg(absFk - off_fk);
@@ -1900,11 +1904,11 @@
 
             let out_rk = Number(j.rear_knee.measured);
             if (j.rear_knee.mode === "knee_relative_deg") {
-                const rel = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
+                const relRaw = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
+                const rel = relRaw <= 180 ? relRaw : (360 - relRaw);
                 const ba = { x: -ur.x, y: -ur.y }; // knee->hip
-                const c1 = rotateCcwDeg(ba, rel);
-                const c2 = rotateCcwDeg(ba, -rel);
-                const vWorld = chooseByRef(c1, c2, ref_vr);
+                const bendSign = cross2(ba, ref_vr) >= 0 ? 1 : -1;
+                const vWorld = rotateCcwDeg(ba, bendSign * rel);
                 const vLocal = rotateCcwDeg(vWorld, -a_rh);
                 const absRk = angleFromKneeLocalUnit(vLocal);
                 out_rk = normalizeDeg(absRk - off_rk);

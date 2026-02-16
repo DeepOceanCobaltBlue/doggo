@@ -656,6 +656,10 @@ def _dot(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return a[0] * b[0] + a[1] * b[1]
 
 
+def _cross(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    return a[0] * b[1] - a[1] * b[0]
+
+
 def _norm2(a: Tuple[float, float]) -> float:
     return _dot(a, a)
 
@@ -901,11 +905,11 @@ def _angles_pack_for_side_from_state(
     off_rh = float(side_vars["rear_hip_offset_deg"])
     off_rk = float(side_vars["rear_knee_offset_deg"])
 
-    # Reference world vectors from uncalibrated model preserve branch/winding choice.
+    # Reference world vectors from uncalibrated model preserve bend direction choice.
     ref_fh_abs = _normalize_deg(phys["front_hip"] + off_fh)
-    ref_fk_abs = _normalize_deg(phys["front_knee"] + off_fk)
+    ref_fk_abs = _normalize_deg(phys["front_knee"])
     ref_rh_abs = _normalize_deg(phys["rear_hip"] + off_rh)
-    ref_rk_abs = _normalize_deg(phys["rear_knee"] + off_rk)
+    ref_rk_abs = _normalize_deg(phys["rear_knee"])
     ref_uf = _unit_from_angle_deg(ref_fh_abs)
     ref_ur = _unit_from_angle_deg(ref_rh_abs)
     ref_vf = _rotate_ccw_deg(_unit_from_knee_angle_deg(ref_fk_abs), ref_fh_abs)
@@ -945,11 +949,11 @@ def _angles_pack_for_side_from_state(
     out_front_knee = float(cal["front_knee"][1])
     mode_fk = cal["front_knee"][0]
     if mode_fk == "knee_relative_deg":
-        rel = _normalize_deg(float(cal["front_knee"][1]) + off_fk)
+        rel_raw = _normalize_deg(float(cal["front_knee"][1]) + off_fk)
+        rel = rel_raw if rel_raw <= 180.0 else (360.0 - rel_raw)
         ba = (-uf[0], -uf[1])  # knee->hip
-        c1 = _rotate_ccw_deg(ba, rel)
-        c2 = _rotate_ccw_deg(ba, -rel)
-        v_world = _choose_vector_by_reference(c1, c2, ref_vf)
+        bend_sign = 1.0 if _cross(ba, ref_vf) >= 0.0 else -1.0
+        v_world = _rotate_ccw_deg(ba, bend_sign * rel)
         v_local = _rotate_ccw_deg(v_world, -a_fh)
         abs_fk = _angle_from_knee_local_unit(v_local)
         out_front_knee = _normalize_deg(abs_fk - off_fk)
@@ -957,11 +961,11 @@ def _angles_pack_for_side_from_state(
     out_rear_knee = float(cal["rear_knee"][1])
     mode_rk = cal["rear_knee"][0]
     if mode_rk == "knee_relative_deg":
-        rel = _normalize_deg(float(cal["rear_knee"][1]) + off_rk)
+        rel_raw = _normalize_deg(float(cal["rear_knee"][1]) + off_rk)
+        rel = rel_raw if rel_raw <= 180.0 else (360.0 - rel_raw)
         ba = (-ur[0], -ur[1])  # knee->hip
-        c1 = _rotate_ccw_deg(ba, rel)
-        c2 = _rotate_ccw_deg(ba, -rel)
-        v_world = _choose_vector_by_reference(c1, c2, ref_vr)
+        bend_sign = 1.0 if _cross(ba, ref_vr) >= 0.0 else -1.0
+        v_world = _rotate_ccw_deg(ba, bend_sign * rel)
         v_local = _rotate_ccw_deg(v_world, -a_rh)
         abs_rk = _angle_from_knee_local_unit(v_local)
         out_rear_knee = _normalize_deg(abs_rk - off_rk)

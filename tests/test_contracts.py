@@ -349,6 +349,26 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertNotEqual(pack["front_hip"], 120.0)
         self.assertNotEqual(pack["front_knee"], 120.0)
 
+    def test_knee_relative_offset_sweep_avoids_branch_flip(self) -> None:
+        module = self.config_app
+        dv = module._default_dyn_vars()
+        state = {loc.key: 135 for loc in module.LOCATIONS}
+
+        def front_shin_world_deg(off: float) -> float:
+            local = json.loads(json.dumps(dv))
+            local["left"]["front_knee_offset_deg"] = float(off)
+            pack = module._angles_pack_for_side_from_state("left", state, dv=local)
+            a_fh = (pack["front_hip"] + local["left"]["front_hip_offset_deg"]) % 360.0
+            a_fk = (pack["front_knee"] + local["left"]["front_knee_offset_deg"]) % 360.0
+            vf = module._rotate_ccw_deg(module._unit_from_knee_angle_deg(a_fk), a_fh)
+            return (math.degrees(math.atan2(vf[1], vf[0])) + 360.0) % 360.0
+
+        a = front_shin_world_deg(120.0)
+        b = front_shin_world_deg(130.0)
+        # Should not jump by a near-180 branch flip between adjacent offsets.
+        delta = abs(((b - a + 180.0) % 360.0) - 180.0)
+        self.assertLess(delta, 60.0)
+
     def test_dynamic_limits_accepts_calibration_schema(self) -> None:
         client = self.config_app.app.test_client()
         cur = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]
