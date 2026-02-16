@@ -849,16 +849,6 @@ def _angle_from_knee_local_unit(v_local: Tuple[float, float]) -> float:
     return _normalize_deg(math.degrees(math.atan2(v_local[1], -v_local[0])))
 
 
-def _choose_vector_by_reference(
-    v1: Tuple[float, float],
-    v2: Tuple[float, float],
-    ref: Tuple[float, float],
-) -> Tuple[float, float]:
-    d1 = _dot(v1, ref)
-    d2 = _dot(v2, ref)
-    return v1 if d1 >= d2 else v2
-
-
 def _physical_sim_angle_from_state(loc_key: str, state_angles: Dict[str, int]) -> float:
     raw = int(state_angles.get(loc_key, 135))
     limits = _get_limits(_draft_cfg, loc_key)
@@ -910,8 +900,6 @@ def _angles_pack_for_side_from_state(
     ref_fk_abs = _normalize_deg(phys["front_knee"])
     ref_rh_abs = _normalize_deg(phys["rear_hip"] + off_rh)
     ref_rk_abs = _normalize_deg(phys["rear_knee"])
-    ref_uf = _unit_from_angle_deg(ref_fh_abs)
-    ref_ur = _unit_from_angle_deg(ref_rh_abs)
     ref_vf = _rotate_ccw_deg(_unit_from_knee_angle_deg(ref_fk_abs), ref_fh_abs)
     ref_vr = _rotate_ccw_deg(_unit_from_knee_angle_deg(ref_rk_abs), ref_rh_abs)
 
@@ -923,20 +911,14 @@ def _angles_pack_for_side_from_state(
     mode_fh = cal["front_hip"][0]
     if mode_fh == "hip_line_relative_deg":
         rel = _normalize_deg(float(cal["front_hip"][1]) + off_fh)
-        c1 = _rotate_ccw_deg(hip_line, rel)
-        c2 = _rotate_ccw_deg(hip_line, -rel)
-        use = _choose_vector_by_reference(c1, c2, ref_uf)
-        abs_fh = _angle_from_hip_unit(use)
+        abs_fh = _angle_from_hip_unit(_rotate_ccw_deg(hip_line, rel))
         out_front_hip = _normalize_deg(abs_fh - off_fh)
 
     out_rear_hip = float(cal["rear_hip"][1])
     mode_rh = cal["rear_hip"][0]
     if mode_rh == "hip_line_relative_deg":
         rel = _normalize_deg(float(cal["rear_hip"][1]) + off_rh)
-        c1 = _rotate_ccw_deg(hip_line, rel)
-        c2 = _rotate_ccw_deg(hip_line, -rel)
-        use = _choose_vector_by_reference(c1, c2, ref_ur)
-        abs_rh = _angle_from_hip_unit(use)
+        abs_rh = _angle_from_hip_unit(_rotate_ccw_deg(hip_line, rel))
         out_rear_hip = _normalize_deg(abs_rh - off_rh)
 
     # Final thigh vectors after hip solve.
