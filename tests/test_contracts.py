@@ -245,7 +245,9 @@ class ConfigApiContracts(unittest.TestCase):
             "rear_right_hip": 120,
             "rear_right_knee": 170,   # invert=true in default config
         }
-        pack = module._angles_pack_for_side_from_state("right", state, dv=module._default_dyn_vars())
+        dv = module._default_dyn_vars()
+        dv["joint_calibration_map"] = {loc.key: "identity" for loc in module.LOCATIONS}
+        pack = module._angles_pack_for_side_from_state("right", state, dv=dv)
         self.assertEqual(pack["front_hip"], 100.0)
         self.assertEqual(pack["front_knee"], 90.0)
         self.assertEqual(pack["rear_hip"], 120.0)
@@ -297,6 +299,7 @@ class ConfigApiContracts(unittest.TestCase):
         dv = module._default_dyn_vars()
         dv["calibration_profiles"]["half"] = {
             "fit_mode": "linear_best_fit",
+            "measurement_mode": "servo_physical_deg",
             "pairs": [
                 {"commanded_deg": 0.0, "actual_deg": 0.0},
                 {"commanded_deg": 200.0, "actual_deg": 100.0},
@@ -308,15 +311,58 @@ class ConfigApiContracts(unittest.TestCase):
         _logical, physical = module.resolve_logical_and_physical_angle(200, limits)
         self.assertEqual(pack["front_hip"], float(physical) * 0.5)
 
+    def test_default_profiles_include_hip_and_knee_standards(self) -> None:
+        module = self.config_app
+        dv = module._default_dyn_vars()
+        self.assertIn("hip_standard", dv["calibration_profiles"])
+        self.assertIn("knee_standard", dv["calibration_profiles"])
+        self.assertEqual(dv["calibration_profiles"]["hip_standard"]["measurement_mode"], "hip_line_relative_deg")
+        self.assertEqual(dv["calibration_profiles"]["knee_standard"]["measurement_mode"], "knee_relative_deg")
+
+    def test_hip_and_knee_relative_modes_affect_sim_pack(self) -> None:
+        module = self.config_app
+        dv = module._default_dyn_vars()
+        dv["calibration_profiles"] = {
+            "identity": {
+                "fit_mode": "linear_best_fit",
+                "measurement_mode": "servo_physical_deg",
+                "pairs": [{"commanded_deg": 0, "actual_deg": 0}, {"commanded_deg": 270, "actual_deg": 270}],
+            },
+            "hip_rel": {
+                "fit_mode": "linear_best_fit",
+                "measurement_mode": "hip_line_relative_deg",
+                "pairs": [{"commanded_deg": 120, "actual_deg": 90}, {"commanded_deg": 140, "actual_deg": 110}],
+            },
+            "knee_rel": {
+                "fit_mode": "linear_best_fit",
+                "measurement_mode": "knee_relative_deg",
+                "pairs": [{"commanded_deg": 120, "actual_deg": 90}, {"commanded_deg": 160, "actual_deg": 130}],
+            },
+        }
+        dv["joint_calibration_map"] = {loc.key: "identity" for loc in module.LOCATIONS}
+        dv["joint_calibration_map"]["front_left_hip"] = "hip_rel"
+        dv["joint_calibration_map"]["front_left_knee"] = "knee_rel"
+
+        state = {"front_left_hip": 120, "front_left_knee": 120}
+        pack = module._angles_pack_for_side_from_state("left", state, dv=dv)
+        # Modes are relative-space; resulting pack values should differ from raw physical passthrough.
+        self.assertNotEqual(pack["front_hip"], 120.0)
+        self.assertNotEqual(pack["front_knee"], 120.0)
+
     def test_dynamic_limits_accepts_calibration_schema(self) -> None:
         client = self.config_app.app.test_client()
         cur = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]
         try:
             update = json.loads(json.dumps(cur))
             update["calibration_profiles"] = {
-                "identity": {"fit_mode": "linear_best_fit", "pairs": [{"commanded_deg": 0, "actual_deg": 0}]},
+                "identity": {
+                    "fit_mode": "linear_best_fit",
+                    "measurement_mode": "servo_physical_deg",
+                    "pairs": [{"commanded_deg": 0, "actual_deg": 0}],
+                },
                 "hips": {
                     "fit_mode": "linear_best_fit",
+                    "measurement_mode": "hip_line_relative_deg",
                     "pairs": [
                         {"commanded_deg": 0, "actual_deg": 0},
                         {"commanded_deg": 180, "actual_deg": 170},
@@ -361,9 +407,14 @@ class ConfigApiContracts(unittest.TestCase):
         try:
             dv = json.loads(json.dumps(module._dyn_vars))
             dv["calibration_profiles"] = {
-                "identity": {"fit_mode": "linear_best_fit", "pairs": [{"commanded_deg": 0, "actual_deg": 0}]},
+                "identity": {
+                    "fit_mode": "linear_best_fit",
+                    "measurement_mode": "servo_physical_deg",
+                    "pairs": [{"commanded_deg": 0, "actual_deg": 0}],
+                },
                 "aggressive": {
                     "fit_mode": "linear_best_fit",
+                    "measurement_mode": "servo_physical_deg",
                     "pairs": [
                         {"commanded_deg": 0, "actual_deg": 0},
                         {"commanded_deg": 180, "actual_deg": 90},

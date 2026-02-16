@@ -644,9 +644,20 @@
                         <select id="cal_profile_select"></select>
                     </div>
                     <div class="field">
+                        <label class="muted">Measurement mode</label>
+                        <select id="cal_mode_select">
+                            <option value="servo_physical_deg">Servo physical (legacy)</option>
+                            <option value="hip_line_relative_deg">Hip line relative</option>
+                            <option value="knee_relative_deg">Knee relative</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid2">
+                    <div class="field">
                         <label class="muted">New profile</label>
                         <input id="cal_new_profile" type="text" placeholder="e.g. hip_standard" />
                     </div>
+                    <div></div>
                 </div>
                 <div class="row">
                     <button id="cal_create_profile_btn">Create</button>
@@ -1351,11 +1362,42 @@
             if (!dynVars.calibration_profiles.identity) {
                 dynVars.calibration_profiles.identity = {
                     fit_mode: "linear_best_fit",
+                    measurement_mode: "servo_physical_deg",
                     pairs: [
                         { commanded_deg: 0, actual_deg: 0 },
                         { commanded_deg: 270, actual_deg: 270 },
                     ],
                 };
+            }
+            if (!dynVars.calibration_profiles.hip_standard) {
+                dynVars.calibration_profiles.hip_standard = {
+                    fit_mode: "linear_best_fit",
+                    measurement_mode: "hip_line_relative_deg",
+                    pairs: [
+                        { commanded_deg: 163, actual_deg: 90 },
+                        { commanded_deg: 135, actual_deg: 135 },
+                    ],
+                };
+            }
+            if (!dynVars.calibration_profiles.knee_standard) {
+                dynVars.calibration_profiles.knee_standard = {
+                    fit_mode: "linear_best_fit",
+                    measurement_mode: "knee_relative_deg",
+                    pairs: [
+                        { commanded_deg: 163, actual_deg: 90 },
+                        { commanded_deg: 30, actual_deg: 180 },
+                    ],
+                };
+            }
+            for (const [name, prof] of Object.entries(dynVars.calibration_profiles)) {
+                if (!prof || typeof prof !== "object") {
+                    dynVars.calibration_profiles[name] = { fit_mode: "linear_best_fit", measurement_mode: "servo_physical_deg", pairs: [] };
+                    continue;
+                }
+                if (!["servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"].includes(String(prof.measurement_mode || ""))) {
+                    prof.measurement_mode = "servo_physical_deg";
+                }
+                if (!Array.isArray(prof.pairs)) prof.pairs = [];
             }
             if (!dynVars.joint_calibration_map || typeof dynVars.joint_calibration_map !== "object") {
                 dynVars.joint_calibration_map = {};
@@ -1434,14 +1476,21 @@
 
             const active = selectedCalibrationProfileName();
             const profile = dynVars.calibration_profiles[active] || { pairs: [] };
+            const modeSel = document.getElementById("cal_mode_select");
+            modeSel.value = ["servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"].includes(profile.measurement_mode)
+                ? profile.measurement_mode
+                : "servo_physical_deg";
             const pairs = Array.isArray(profile.pairs) ? profile.pairs : [];
 
             const fit = fitLinearFromPairs(pairs);
             const fitEl = document.getElementById("cal_fit_summary");
+            const modeLabel = modeSel.value === "hip_line_relative_deg"
+                ? "hip-line-relative"
+                : (modeSel.value === "knee_relative_deg" ? "knee-relative" : "servo-physical");
             if (!fit) {
-                fitEl.textContent = "Need at least 2 points for fit. Using identity in sim.";
+                fitEl.textContent = `Mode=${modeLabel}. Need at least 2 points for fit.`;
             } else {
-                fitEl.textContent = `Fit: actual = ${fit.m.toFixed(4)}*commanded + ${fit.b.toFixed(2)} (R²=${fit.r2.toFixed(4)}, n=${fit.n})`;
+                fitEl.textContent = `Mode=${modeLabel}. Fit: actual = ${fit.m.toFixed(4)}*commanded + ${fit.b.toFixed(2)} (R²=${fit.r2.toFixed(4)}, n=${fit.n})`;
             }
 
             const pairsWrap = document.getElementById("cal_pairs_list");
@@ -1689,20 +1738,45 @@
             return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
         }
 
-        function calibratedPhysicalForViz(locKey, physicalAngle) {
+        function normalizeDeg(deg) {
+            let x = deg % 360;
+            if (x < 0) x += 360;
+            return x;
+        }
+
+        function dot2(a, b) {
+            return a.x * b.x + a.y * b.y;
+        }
+
+        function chooseByRef(v1, v2, ref) {
+            return dot2(v1, ref) >= dot2(v2, ref) ? v1 : v2;
+        }
+
+        function angleFromHipUnit(u) {
+            return normalizeDeg(Math.atan2(-u.y, -u.x) * 180.0 / Math.PI);
+        }
+
+        function angleFromKneeLocalUnit(v) {
+            return normalizeDeg(Math.atan2(v.y, -v.x) * 180.0 / Math.PI);
+        }
+
+        function calibratedMeasurementForViz(locKey, physicalAngle) {
             const profiles = dynVars?.calibration_profiles;
             const jmap = dynVars?.joint_calibration_map;
-            if (!profiles || typeof profiles !== "object") return physicalAngle;
+            if (!profiles || typeof profiles !== "object") return { mode: "servo_physical_deg", value: physicalAngle };
             let profName = String((jmap && jmap[locKey]) || "identity");
             if (!profiles[profName]) profName = "identity";
             const prof = profiles[profName];
-            if (!prof || typeof prof !== "object") return physicalAngle;
+            if (!prof || typeof prof !== "object") return { mode: "servo_physical_deg", value: physicalAngle };
+            const mode = ["servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"].includes(String(prof.measurement_mode))
+                ? String(prof.measurement_mode)
+                : "servo_physical_deg";
             const fit = fitLinearFromPairs(Array.isArray(prof.pairs) ? prof.pairs : []);
-            if (!fit) return physicalAngle;
-            return Math.max(0, Math.min(270, fit.m * physicalAngle + fit.b));
+            if (!fit) return { mode, value: physicalAngle };
+            return { mode, value: Math.max(0, Math.min(270, fit.m * physicalAngle + fit.b)) };
         }
 
-        function getSideAngles(side, state) {
+        function getSideJointInputs(side, state) {
             const s = state || {};
             const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
             function physicalForViz(locKey, logicalAngle) {
@@ -1712,22 +1786,26 @@
                 let hi = clampInt(toInt(lim.deg_max, 270), 0, 270);
                 if (hi < lo) { const t = lo; lo = hi; hi = t; }
                 const logical = clampInt(raw, lo, hi);
-                const physical = (lim.invert === true) ? (270 - logical) : logical;
-                return calibratedPhysicalForViz(locKey, physical);
+                return (lim.invert === true) ? (270 - logical) : logical;
+            }
+            function jointIn(locKey, logicalAngle) {
+                const physical = physicalForViz(locKey, logicalAngle);
+                const cal = calibratedMeasurementForViz(locKey, physical);
+                return { physical, mode: cal.mode, measured: cal.value };
             }
             if (side === "right") {
                 return {
-                    front_hip: physicalForViz("front_right_hip", s.front_right_hip),
-                    front_knee: physicalForViz("front_right_knee", s.front_right_knee),
-                    rear_hip: physicalForViz("rear_right_hip", s.rear_right_hip),
-                    rear_knee: physicalForViz("rear_right_knee", s.rear_right_knee),
+                    front_hip: jointIn("front_right_hip", s.front_right_hip),
+                    front_knee: jointIn("front_right_knee", s.front_right_knee),
+                    rear_hip: jointIn("rear_right_hip", s.rear_right_hip),
+                    rear_knee: jointIn("rear_right_knee", s.rear_right_knee),
                 };
             }
             return {
-                front_hip: physicalForViz("front_left_hip", s.front_left_hip),
-                front_knee: physicalForViz("front_left_knee", s.front_left_knee),
-                rear_hip: physicalForViz("rear_left_hip", s.rear_left_hip),
-                rear_knee: physicalForViz("rear_left_knee", s.rear_left_knee),
+                front_hip: jointIn("front_left_hip", s.front_left_hip),
+                front_knee: jointIn("front_left_knee", s.front_left_knee),
+                rear_hip: jointIn("rear_left_hip", s.rear_left_hip),
+                rear_knee: jointIn("rear_left_knee", s.rear_left_knee),
             };
         }
 
@@ -1737,7 +1815,7 @@
             const side = activeSide();
             const s = dynVars[side] || {};
             const st = currentStateAngles();
-            const a = getSideAngles(side, st);
+            const j = getSideJointInputs(side, st);
 
             const hip_dx = Number(s.hip_dx_mm ?? 80);
             const hip_y = Number(s.hip_y_mm ?? 60);
@@ -1763,18 +1841,71 @@
             const Hf = { x: 0, y: hip_y };
             const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
 
-            // Hip is a world direction. Knee is interpreted in hip-local frame.
-            const a_fh = Number(a.front_hip) + off_fh;
-            const a_fk = Number(a.front_knee) + off_fk;
-            const a_rh = Number(a.rear_hip) + off_rh;
-            const a_rk = Number(a.rear_knee) + off_rk;
+            // Reference world vectors from uncalibrated model preserve branch choices.
+            const ref_fh_abs = normalizeDeg(Number(j.front_hip.physical) + off_fh);
+            const ref_fk_abs = normalizeDeg(Number(j.front_knee.physical) + off_fk);
+            const ref_rh_abs = normalizeDeg(Number(j.rear_hip.physical) + off_rh);
+            const ref_rk_abs = normalizeDeg(Number(j.rear_knee.physical) + off_rk);
+            const ref_uf = unitFromAngleDeg(ref_fh_abs);
+            const ref_ur = unitFromAngleDeg(ref_rh_abs);
+            const ref_vf = rotateCcwDeg(unitFromKneeAngleDeg(ref_fk_abs), ref_fh_abs);
+            const ref_vr = rotateCcwDeg(unitFromKneeAngleDeg(ref_rk_abs), ref_rh_abs);
 
+            const hipLine = (side === "left") ? { x: 1, y: 0 } : { x: -1, y: 0 };
+
+            let out_fh = Number(j.front_hip.measured);
+            if (j.front_hip.mode === "hip_line_relative_deg") {
+                const rel = normalizeDeg(Number(j.front_hip.measured) + off_fh);
+                const c1 = rotateCcwDeg(hipLine, rel);
+                const c2 = rotateCcwDeg(hipLine, -rel);
+                const use = chooseByRef(c1, c2, ref_uf);
+                out_fh = normalizeDeg(angleFromHipUnit(use) - off_fh);
+            }
+
+            let out_rh = Number(j.rear_hip.measured);
+            if (j.rear_hip.mode === "hip_line_relative_deg") {
+                const rel = normalizeDeg(Number(j.rear_hip.measured) + off_rh);
+                const c1 = rotateCcwDeg(hipLine, rel);
+                const c2 = rotateCcwDeg(hipLine, -rel);
+                const use = chooseByRef(c1, c2, ref_ur);
+                out_rh = normalizeDeg(angleFromHipUnit(use) - off_rh);
+            }
+
+            const a_fh = normalizeDeg(out_fh + off_fh);
+            const a_rh = normalizeDeg(out_rh + off_rh);
             const uf = unitFromAngleDeg(a_fh);
+            const ur = unitFromAngleDeg(a_rh);
+
+            let out_fk = Number(j.front_knee.measured);
+            if (j.front_knee.mode === "knee_relative_deg") {
+                const rel = normalizeDeg(Number(j.front_knee.measured) + off_fk);
+                const ba = { x: -uf.x, y: -uf.y }; // knee->hip
+                const c1 = rotateCcwDeg(ba, rel);
+                const c2 = rotateCcwDeg(ba, -rel);
+                const vWorld = chooseByRef(c1, c2, ref_vf);
+                const vLocal = rotateCcwDeg(vWorld, -a_fh);
+                const absFk = angleFromKneeLocalUnit(vLocal);
+                out_fk = normalizeDeg(absFk - off_fk);
+            }
+
+            let out_rk = Number(j.rear_knee.measured);
+            if (j.rear_knee.mode === "knee_relative_deg") {
+                const rel = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
+                const ba = { x: -ur.x, y: -ur.y }; // knee->hip
+                const c1 = rotateCcwDeg(ba, rel);
+                const c2 = rotateCcwDeg(ba, -rel);
+                const vWorld = chooseByRef(c1, c2, ref_vr);
+                const vLocal = rotateCcwDeg(vWorld, -a_rh);
+                const absRk = angleFromKneeLocalUnit(vLocal);
+                out_rk = normalizeDeg(absRk - off_rk);
+            }
+
+            const a_fk = normalizeDeg(out_fk + off_fk);
+            const a_rk = normalizeDeg(out_rk + off_rk);
             const Kf = add(Hf, mul(uf, Ltf));
             const vf = rotateCcwDeg(unitFromKneeAngleDeg(a_fk), a_fh);
             const Ff = add(Kf, mul(vf, Lsf));
 
-            const ur = unitFromAngleDeg(a_rh);
             const Kr = add(Hr, mul(ur, Ltr));
             const vr = rotateCcwDeg(unitFromKneeAngleDeg(a_rk), a_rh);
             const Fr = add(Kr, mul(vr, Lsr));
@@ -1787,7 +1918,12 @@
             return {
                 side,
                 anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
-                angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
+                angles: {
+                    a_fh: Number(j.front_hip.physical),
+                    a_fk: Number(j.front_knee.physical),
+                    a_rh: Number(j.rear_hip.physical),
+                    a_rk: Number(j.rear_knee.physical),
+                },
                 simAngles: { a_fh, a_fk, a_rh, a_rk },
                 relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
                 baselines: {
@@ -2204,6 +2340,15 @@
         document.getElementById("cal_profile_select").addEventListener("change", () => {
             renderCalibrationUi();
         });
+        document.getElementById("cal_mode_select").addEventListener("change", () => {
+            if (!dynVars) return;
+            ensureCalibrationModel();
+            const name = selectedCalibrationProfileName();
+            dynVars.calibration_profiles[name].measurement_mode = document.getElementById("cal_mode_select").value;
+            renderCalibrationUi();
+            scheduleDynVarsSave();
+            renderViz();
+        });
         document.getElementById("cal_create_profile_btn").addEventListener("click", () => {
             if (!dynVars) return;
             ensureCalibrationModel();
@@ -2213,7 +2358,11 @@
                 return;
             }
             if (!dynVars.calibration_profiles[raw]) {
-                dynVars.calibration_profiles[raw] = { fit_mode: "linear_best_fit", pairs: [] };
+                dynVars.calibration_profiles[raw] = {
+                    fit_mode: "linear_best_fit",
+                    measurement_mode: "servo_physical_deg",
+                    pairs: [],
+                };
             }
             document.getElementById("cal_new_profile").value = "";
             renderCalibrationUi();
