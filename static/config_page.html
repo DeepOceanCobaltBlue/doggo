@@ -631,7 +631,14 @@
                     </div>
                 </div>
                 <div class="grid2">
-                    <div class="muted">Toe-line and relative-angle readouts removed.</div>
+                    <div class="field">
+                        <label class="muted">Front thigh vs shin</label>
+                        <input id="geoRelFront" type="text" value="—" readonly />
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear thigh vs shin</label>
+                        <input id="geoRelRear" type="text" value="—" readonly />
+                    </div>
                 </div>
             </div>
 
@@ -1410,6 +1417,18 @@
             return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
         }
 
+        function segmentRelativeDeg(a, b, c) {
+            // Joint interior angle at B between thigh and shin:
+            // use vectors BA (knee->hip) and BC (knee->foot).
+            const ux = a.x - b.x, uy = a.y - b.y;
+            const vx = c.x - b.x, vy = c.y - b.y;
+            const un = Math.hypot(ux, uy);
+            const vn = Math.hypot(vx, vy);
+            if (un < 1e-9 || vn < 1e-9) return 0;
+            const dot = (ux * vx + uy * vy) / (un * vn);
+            return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
+        }
+
         function rotateCcwDeg(v, deg) {
             const r = degToRad(deg);
             const c = Math.cos(r);
@@ -1493,6 +1512,8 @@
             const vr = rotateCcwDeg(unitFromKneeAngleDeg(a_rk), a_rh);
             const Fr = add(Kr, mul(vr, Lsr));
 
+            const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
+            const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
             const hipVsFrontThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hf, Kf);
             const hipVsRearThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hr, Kr);
 
@@ -1501,6 +1522,7 @@
                 anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
                 angles: { a_fh: a.front_hip, a_fk: a.front_knee, a_rh: a.rear_hip, a_rk: a.rear_knee },
                 simAngles: { a_fh, a_fk, a_rh, a_rk },
+                relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
                 baselines: {
                     hip_vs_front_thigh_deg: hipVsFrontThighDeg,
                     hip_vs_rear_thigh_deg: hipVsRearThighDeg,
@@ -1537,6 +1559,8 @@
                 poseInfo.textContent = "—";
                 setGeoReadout("geoHipFront", NaN);
                 setGeoReadout("geoHipRear", NaN);
+                setGeoReadout("geoRelFront", NaN);
+                setGeoReadout("geoRelRear", NaN);
                 return;
             }
 
@@ -1704,6 +1728,8 @@
 
             setGeoReadout("geoHipFront", g.baselines.hip_vs_front_thigh_deg);
             setGeoReadout("geoHipRear", g.baselines.hip_vs_rear_thigh_deg);
+            setGeoReadout("geoRelFront", g.relative.front_deg);
+            setGeoReadout("geoRelRear", g.relative.rear_deg);
 
         }
 
