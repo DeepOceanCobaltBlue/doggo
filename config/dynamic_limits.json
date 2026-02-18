@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "active_side": "right",
+  "active_side": "left",
   "search_step_deg": 1,
   "search_max_iters": 300,
   "left": {
