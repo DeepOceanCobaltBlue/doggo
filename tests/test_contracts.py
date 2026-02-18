@@ -8,6 +8,16 @@ import types
 import unittest
 from pathlib import Path
 
+from sim_core import sim_store
+from sim_core.kinematics import (
+    angles_pack_for_side_from_state,
+    build_leg_capsules_for_side,
+    rotate_ccw_deg,
+    unit_from_angle_deg,
+    unit_from_knee_angle_deg,
+)
+from sim_core.types import LOCATION_KEYS
+
 try:
     import flask  # noqa: F401
     HAVE_FLASK = True
@@ -245,31 +255,29 @@ class ConfigApiContracts(unittest.TestCase):
             "rear_right_hip": 120,
             "rear_right_knee": 170,   # invert=true in default config
         }
-        dv = module._default_dyn_vars()
-        dv["joint_calibration_map"] = {loc.key: "identity" for loc in module.LOCATIONS}
-        pack = module._angles_pack_for_side_from_state("right", state, dv=dv)
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
+        dv["joint_calibration_map"] = {loc_key: "identity" for loc_key in LOCATION_KEYS}
+        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        pack = angles_pack_for_side_from_state("right", state, dv=dv, servo_limits_by_location=servo_limits)
         self.assertEqual(pack["front_hip"], 100.0)
         self.assertEqual(pack["front_knee"], 90.0)
         self.assertEqual(pack["rear_hip"], 120.0)
         self.assertEqual(pack["rear_knee"], 100.0)
 
     def test_sim_direction_increasing_angle_moves_toward_front(self) -> None:
-        module = self.config_app
-        x0, _ = module._unit_from_angle_deg(0)
-        x90, _ = module._unit_from_angle_deg(90)
-        x180, _ = module._unit_from_angle_deg(180)
+        x0, _ = unit_from_angle_deg(0)
+        x90, _ = unit_from_angle_deg(90)
+        x180, _ = unit_from_angle_deg(180)
         self.assertLess(x0, x90)
         self.assertLess(x90, x180)
 
     def test_knee_winding_is_opposite_hip_winding(self) -> None:
-        module = self.config_app
-        _, y_hip = module._unit_from_angle_deg(60)
-        _, y_knee = module._unit_from_knee_angle_deg(60)
+        _, y_hip = unit_from_angle_deg(60)
+        _, y_knee = unit_from_knee_angle_deg(60)
         self.assertEqual(round(y_hip, 6), round(-y_knee, 6))
 
     def test_sim_keeps_knee_joint_angle_when_only_hip_changes(self) -> None:
-        module = self.config_app
-        dv = module._default_dyn_vars()
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
 
         def interior_knee_deg(front_caps):
             thigh = next(c for c in front_caps if c.name == "front_thigh")
@@ -288,15 +296,15 @@ class ConfigApiContracts(unittest.TestCase):
         angles1 = {"front_hip": 120.0, "front_knee": 135.0, "rear_hip": 135.0, "rear_knee": 135.0}
         angles2 = {"front_hip": 170.0, "front_knee": 135.0, "rear_hip": 135.0, "rear_knee": 135.0}
 
-        front1, _ = module._build_leg_capsules_for_side(dv, "left", angles1)
-        front2, _ = module._build_leg_capsules_for_side(dv, "left", angles2)
+        front1, _ = build_leg_capsules_for_side(dv, "left", angles1)
+        front2, _ = build_leg_capsules_for_side(dv, "left", angles2)
 
         self.assertAlmostEqual(interior_knee_deg(front1), interior_knee_deg(front2), places=6)
 
     def test_sim_calibration_profile_maps_predicted_angle_only(self) -> None:
         module = self.config_app
         state = {"front_left_hip": 200}
-        dv = module._default_dyn_vars()
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
         dv["calibration_profiles"]["half"] = {
             "fit_mode": "linear_best_fit",
             "measurement_mode": "servo_physical_deg",
@@ -306,14 +314,14 @@ class ConfigApiContracts(unittest.TestCase):
             ],
         }
         dv["joint_calibration_map"]["front_left_hip"] = "half"
-        pack = module._angles_pack_for_side_from_state("left", state, dv=dv)
+        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        pack = angles_pack_for_side_from_state("left", state, dv=dv, servo_limits_by_location=servo_limits)
         limits = module._get_limits(module._draft_cfg, "front_left_hip")
         _logical, physical = module.resolve_logical_and_physical_angle(200, limits)
         self.assertEqual(pack["front_hip"], float(physical) * 0.5)
 
     def test_default_profiles_include_hip_and_knee_standards(self) -> None:
-        module = self.config_app
-        dv = module._default_dyn_vars()
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
         self.assertIn("hip_standard", dv["calibration_profiles"])
         self.assertIn("knee_standard", dv["calibration_profiles"])
         self.assertEqual(dv["calibration_profiles"]["hip_standard"]["measurement_mode"], "hip_line_relative_deg")
@@ -321,7 +329,7 @@ class ConfigApiContracts(unittest.TestCase):
 
     def test_hip_and_knee_relative_modes_affect_sim_pack(self) -> None:
         module = self.config_app
-        dv = module._default_dyn_vars()
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
         dv["calibration_profiles"] = {
             "identity": {
                 "fit_mode": "linear_best_fit",
@@ -339,28 +347,30 @@ class ConfigApiContracts(unittest.TestCase):
                 "pairs": [{"commanded_deg": 120, "actual_deg": 90}, {"commanded_deg": 160, "actual_deg": 130}],
             },
         }
-        dv["joint_calibration_map"] = {loc.key: "identity" for loc in module.LOCATIONS}
+        dv["joint_calibration_map"] = {loc_key: "identity" for loc_key in LOCATION_KEYS}
         dv["joint_calibration_map"]["front_left_hip"] = "hip_rel"
         dv["joint_calibration_map"]["front_left_knee"] = "knee_rel"
 
         state = {"front_left_hip": 120, "front_left_knee": 120}
-        pack = module._angles_pack_for_side_from_state("left", state, dv=dv)
+        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        pack = angles_pack_for_side_from_state("left", state, dv=dv, servo_limits_by_location=servo_limits)
         # Modes are relative-space; resulting pack values should differ from raw physical passthrough.
         self.assertNotEqual(pack["front_hip"], 120.0)
         self.assertNotEqual(pack["front_knee"], 120.0)
 
     def test_knee_relative_offset_sweep_avoids_branch_flip(self) -> None:
         module = self.config_app
-        dv = module._default_dyn_vars()
-        state = {loc.key: 135 for loc in module.LOCATIONS}
+        dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
+        state = {loc_key: 135 for loc_key in LOCATION_KEYS}
+        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
 
         def front_shin_world_deg(off: float) -> float:
             local = json.loads(json.dumps(dv))
             local["left"]["front_knee_offset_deg"] = float(off)
-            pack = module._angles_pack_for_side_from_state("left", state, dv=local)
+            pack = angles_pack_for_side_from_state("left", state, dv=local, servo_limits_by_location=servo_limits)
             a_fh = (pack["front_hip"] + local["left"]["front_hip_offset_deg"]) % 360.0
             a_fk = (pack["front_knee"] + local["left"]["front_knee_offset_deg"]) % 360.0
-            vf = module._rotate_ccw_deg(module._unit_from_knee_angle_deg(a_fk), a_fh)
+            vf = rotate_ccw_deg(unit_from_knee_angle_deg(a_fk), a_fh)
             return (math.degrees(math.atan2(vf[1], vf[0])) + 360.0) % 360.0
 
         a = front_shin_world_deg(120.0)
