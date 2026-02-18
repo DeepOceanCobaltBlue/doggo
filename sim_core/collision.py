@@ -97,19 +97,22 @@ def predict_collision_for_side(
         for c2 in rear_caps:
             dmin = capsules_min_distance(c1, c2)
             thresh = float(c1.r + c2.r)
-            if best is None or dmin < best[0]:
-                best = (dmin, thresh, c1.name, c2.name)
+            margin = float(dmin - thresh)
+            # Select the most critical pair by minimum clearance margin.
+            # This catches overlaps even if another pair has smaller absolute distance.
+            if best is None or margin < best[0]:
+                best = (margin, dmin, thresh, c1.name, c2.name)
 
     if best is None:
         return False, None
 
-    dmin, thresh, n1, n2 = best
+    margin, dmin, thresh, n1, n2 = best
     details = {
         "pair": f"{n1} vs {n2}",
         "min_distance_mm": dmin,
         "threshold_mm": thresh,
     }
-    return dmin <= thresh, details
+    return margin <= 0.0, details
 
 
 def collision_snapshot_for_state(

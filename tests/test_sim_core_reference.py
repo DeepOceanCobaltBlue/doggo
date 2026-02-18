@@ -70,6 +70,28 @@ class SimCoreReference(unittest.TestCase):
         self.assertIn("left", snap)
         self.assertIn("right", snap)
 
+    def test_collision_flags_any_overlapping_pair_not_only_closest_distance_pair(self) -> None:
+        # Regression: previously the implementation only checked the closest-distance pair.
+        cfg = json.loads(Path("config/config_file.json").read_text())
+        dv = json.loads(Path("config/dynamic_limits.json").read_text())
+        stance = json.loads(Path("stances/default.json").read_text())
+
+        limits = {}
+        for k, v in cfg["locations"].items():
+            lim = v["limits"]
+            limits[k] = ServoLimits(
+                deg_min=int(lim["deg_min"]),
+                deg_max=int(lim["deg_max"]),
+                invert=bool(lim["invert"]),
+            )
+
+        state = dict(stance.get("angles", {}))
+        state["rear_right_hip"] = 182
+        collides, details = predict_collision_for_side(dv, "right", state, limits)
+        self.assertTrue(collides)
+        self.assertIsInstance(details, dict)
+        self.assertEqual(details.get("pair"), "front_thigh vs rear_shin")
+
     def test_step_search_returns_expected_tuple(self) -> None:
         dv = default_dyn_vars(location_keys=LOCATION_KEYS)
         dv["left"]["front_thigh_radius_mm"] = 1000.0
