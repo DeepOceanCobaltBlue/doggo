@@ -4,6 +4,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, List, Any, Tuple
 
@@ -297,6 +298,7 @@ _sim_angles: Dict[str, int] = {loc.key: DEFAULT_NEUTRAL for loc in LOCATIONS}
 _sim_engine = SimulationEngine(dynamic_limits=_dyn_vars, servo_limits_by_location=_servo_limits_by_location(_draft_cfg))
 _sim_engine.set_state("normal", _hw_angles)
 _sim_engine.set_state("test", _sim_angles)
+_last_command_trace: Dict[str, Any] = {}
 
 
 # -----------------------------
@@ -315,10 +317,20 @@ def _sync_sim_engine_inputs(include_states: bool = True) -> None:
         _sim_engine.set_state("test", _sim_angles)
 
 
+def _set_last_command_trace(trace: Dict[str, Any]) -> None:
+    global _last_command_trace
+    payload = dict(trace)
+    payload["ts_utc"] = datetime.now(timezone.utc).isoformat()
+    _last_command_trace = payload
+
+
 def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tuple[bool, Dict[str, Any], int]:
     global _hw_angles, _sim_angles
 
     if loc_key not in _draft_cfg["locations"]:
+        _set_last_command_trace(
+            {"ok": False, "location": loc_key, "mode": mode, "error": f"Unknown location '{loc_key}'"}
+        )
         return False, {"ok": False, "error": f"Unknown location '{loc_key}'"}, 400
 
     if mode not in ("normal", "test"):
@@ -333,6 +345,9 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
     try:
         sim_out = _sim_engine.apply_command(state_name=state_name, loc_key=loc_key, requested_angle=requested)
     except KeyError:
+        _set_last_command_trace(
+            {"ok": False, "location": loc_key, "mode": mode, "error": f"Unknown location '{loc_key}'"}
+        )
         return False, {"ok": False, "error": f"Unknown location '{loc_key}'"}, 400
 
     # In normal mode, require channel + hardware
@@ -340,9 +355,31 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
         ch = _draft_cfg["locations"][loc_key]["channel"]
         if ch is None:
             _sim_engine.set_state("normal", _hw_angles)
+            _set_last_command_trace(
+                {
+                    "ok": False,
+                    "location": loc_key,
+                    "mode": mode,
+                    "requested_angle": int(requested),
+                    "applied_angle": int(sim_out.applied_angle),
+                    "error": f"Location '{loc_key}' is unassigned",
+                    "pca_called": False,
+                }
+            )
             return False, {"ok": False, "error": f"Location '{loc_key}' is unassigned"}, 409
         if pca is None:
             _sim_engine.set_state("normal", _hw_angles)
+            _set_last_command_trace(
+                {
+                    "ok": False,
+                    "location": loc_key,
+                    "mode": mode,
+                    "requested_angle": int(requested),
+                    "applied_angle": int(sim_out.applied_angle),
+                    "error": "Hardware not available (PCA9685 init failed).",
+                    "pca_called": False,
+                }
+            )
             return False, {"ok": False, "error": "Hardware not available (PCA9685 init failed)."}, 503
 
         try:
@@ -350,10 +387,49 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
             pca.set_channel_angle_deg(int(ch), int(sim_out.applied_angle), limits=limits)
         except Exception as e:
             _sim_engine.set_state("normal", _hw_angles)
+            _set_last_command_trace(
+                {
+                    "ok": False,
+                    "location": loc_key,
+                    "mode": mode,
+                    "requested_angle": int(requested),
+                    "applied_angle": int(sim_out.applied_angle),
+                    "channel": int(ch),
+                    "error": f"Hardware command failed: {e}",
+                    "pca_called": True,
+                }
+            )
             return False, {"ok": False, "error": f"Hardware command failed: {e}"}, 503
         _hw_angles = _sim_engine.get_state("normal")
+        _set_last_command_trace(
+            {
+                "ok": True,
+                "location": loc_key,
+                "mode": mode,
+                "requested_angle": int(sim_out.requested_angle),
+                "travel_applied_angle": int(sim_out.travel_applied_angle),
+                "applied_angle": int(sim_out.applied_angle),
+                "channel": int(ch),
+                "pca_called": True,
+                "clamped": bool(sim_out.clamped),
+                "clamp_reason": sim_out.clamp_reason,
+            }
+        )
     else:
         _sim_angles = _sim_engine.get_state("test")
+        _set_last_command_trace(
+            {
+                "ok": True,
+                "location": loc_key,
+                "mode": mode,
+                "requested_angle": int(sim_out.requested_angle),
+                "travel_applied_angle": int(sim_out.travel_applied_angle),
+                "applied_angle": int(sim_out.applied_angle),
+                "pca_called": False,
+                "clamped": bool(sim_out.clamped),
+                "clamp_reason": sim_out.clamp_reason,
+            }
+        )
 
     return (
         True,
@@ -412,6 +488,11 @@ def api_get_config():
 @app.get("/api/dynamic_limits")
 def api_get_dynamic_limits():
     return jsonify({"ok": True, "dynamic_limits": _dyn_vars})
+
+
+@app.get("/api/debug/last_command")
+def api_debug_last_command():
+    return jsonify({"ok": True, "last_command": _last_command_trace})
 
 
 @app.post("/api/dynamic_limits")
