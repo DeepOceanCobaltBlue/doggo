@@ -576,16 +576,71 @@ class HubApiContracts(unittest.TestCase):
         resp = client.post("/api/load_program", json={"num_frames": 200})
         self.assertEqual(resp.status_code, 400)
 
+    def test_load_program_json_and_compile_preview_contract(self) -> None:
+        client = self.hub_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        payload = {
+            "program": {
+                "program_id": "hub_test",
+                "tick_ms": 20,
+                "steps": [
+                    {
+                        "step_id": "lift",
+                        "commands": [
+                            {"location": "rear_left_hip", "target_angle": 150, "duration_ms": 40},
+                            {"location": "rear_right_hip", "target_angle": 150, "duration_ms": 40},
+                        ],
+                    }
+                ],
+            }
+        }
+        load = client.post("/api/load_program_json", json=payload)
+        self.assertEqual(load.status_code, 200)
+        self.assertTrue(load.get_json()["ok"])
+
+        comp = client.post("/api/compile_program", json={"sparse_targets": True})
+        self.assertEqual(comp.status_code, 200)
+        self.assertTrue(comp.get_json()["ok"])
+
+        prev = client.get("/api/program_preview?count=5")
+        self.assertEqual(prev.status_code, 200)
+        body = prev.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("ticks", body)
+
+        telem = client.get("/api/telemetry?tail=5")
+        self.assertEqual(telem.status_code, 200)
+        self.assertTrue(telem.get_json()["ok"])
+
+    def test_hub_settings_and_heartbeat_contract(self) -> None:
+        client = self.hub_app.app.test_client()
+
+        resp = client.post(
+            "/api/settings",
+            json={"heartbeat_timeout_ms": 2500, "stop_on_clamp": True},
+        )
+        self.assertEqual(resp.status_code, 200)
+        st = resp.get_json()["status"]
+        self.assertEqual(float(st["heartbeat_timeout_ms"]), 2500.0)
+        self.assertTrue(bool(st["stop_on_clamp"]))
+
+        hb = client.post("/api/heartbeat", json={})
+        self.assertEqual(hb.status_code, 200)
+        self.assertTrue(hb.get_json()["ok"])
+
     def test_settings_validation_rejects_invalid_values(self) -> None:
         client = self.hub_app.app.test_client()
 
-        resp = client.post("/api/settings", json={"slice_period_ms": 0})
+        resp = client.post("/api/settings", json={"heartbeat_timeout_ms": -1})
         self.assertEqual(resp.status_code, 400)
 
-        resp = client.post("/api/settings", json={"overrun_warn_ms": -1})
+        resp = client.post("/api/settings", json={"heartbeat_timeout_ms": 120000})
         self.assertEqual(resp.status_code, 400)
 
-        resp = client.post("/api/settings", json={"slice_period_ms": 20, "overrun_warn_ms": 0.5})
+        resp = client.post("/api/settings", json={"heartbeat_timeout_ms": 0, "stop_on_clamp": False})
         self.assertEqual(resp.status_code, 200)
 
 

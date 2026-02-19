@@ -9,19 +9,26 @@ from typing import Any, Dict, Optional, List, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from hardware.pca9685 import PCA9685, ServoLimits
-from program_loader_npz import load_program_npz, LoadedProgram as NPZProgram
+from hardware.pca9685 import PCA9685
+from motion_core import (
+    build_config_state_view,
+    clamp_int,
+    CommandRunner,
+    HardwareRuntimeLock,
+    ProgramRuntimeEngine,
+    SafetyPipeline,
+    compile_timeline,
+    normalize_and_validate_program_spec,
+)
+from sim_core import sim_store
 
 
 # -----------------------------
 # Hub settings (tunable)
 # -----------------------------
-SLICE_PERIOD_MS_DEFAULT = 40         # you will tune this
-OVERRUN_WARN_MS_DEFAULT = 1.0        # you will tune this
-SLICE_PERIOD_MS_MIN = 1.0
-SLICE_PERIOD_MS_MAX = 5000.0
-OVERRUN_WARN_MS_MIN = 0.0
-OVERRUN_WARN_MS_MAX = 5000.0
+HEARTBEAT_TIMEOUT_MS_DEFAULT = 0.0
+HEARTBEAT_TIMEOUT_MS_MIN = 0.0
+HEARTBEAT_TIMEOUT_MS_MAX = 60_000.0
 
 I2C_BUS = 1
 I2C_ADDR = 0x40
@@ -29,24 +36,12 @@ I2C_ADDR = 0x40
 CONFIG_DIR = Path("config")
 CONFIG_FILE = CONFIG_DIR / "config_file.json"
 LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
-
-PROGRAMS_DIR = Path("programs")
+DYN_VARS_FILE = CONFIG_DIR / "dynamic_limits.json"
 
 # Hub UI
 BASE_DIR = Path(__file__).resolve().parent
 HUB_STATIC_DIR = BASE_DIR / "hub_static"
 HUB_PAGE = "hub_page.html"
-
-
-# -----------------------------
-# Helpers
-# -----------------------------
-def _now() -> float:
-    return time.monotonic()
-
-
-def _clamp_int(x: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, x))
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
@@ -71,43 +66,14 @@ def _validate_location_order(order: Any) -> Tuple[bool, List[str], str]:
     return True, cleaned, ""
 
 
-def _limits_from_cfg_item(item: Dict[str, Any]) -> ServoLimits:
-    lim = item.get("limits", {}) if isinstance(item.get("limits", {}), dict) else {}
-    deg_min = _clamp_int(int(lim.get("deg_min", 0)), 0, 270)
-    deg_max = _clamp_int(int(lim.get("deg_max", 270)), 0, 270)
-    if deg_max < deg_min:
-        deg_min, deg_max = deg_max, deg_min
-    invert = bool(lim.get("invert", False))
-    return ServoLimits(deg_min=deg_min, deg_max=deg_max, invert=invert)
-
-
-def _resolve_program_path(program_name_or_path: str) -> Tuple[Optional[Path], str]:
-    """
-    Accept either:
-      - "default_stance.npz" (looked up under programs/)
-      - "programs/default_stance.npz"
-      - absolute path to a .npz
-
-    Returns (path, "ok") or (None, error).
-    """
-    s = (program_name_or_path or "").strip()
-    if not s:
-        return None, "program must be provided"
-
-    p = Path(s)
-
-    # If it's a bare name, resolve under programs/
-    if not p.is_absolute() and p.parent == Path("."):
-        p = PROGRAMS_DIR / p
-
-    # If it's a relative path, resolve from cwd
-    p = p.resolve()
-
-    if p.suffix.lower() != ".npz":
-        return None, "program must be a .npz file"
-    if not p.exists():
-        return None, f"program not found: {p}"
-    return p, "ok"
+def _summarize_timeline(timeline) -> Dict[str, Any]:
+    return {
+        "program_id": timeline.program_id,
+        "tick_ms": timeline.tick_ms,
+        "duration_ms": timeline.duration_ms,
+        "num_ticks": len(timeline.ticks),
+        "location_keys": list(timeline.location_keys),
+    }
 
 
 # -----------------------------
@@ -115,47 +81,45 @@ def _resolve_program_path(program_name_or_path: str) -> Tuple[Optional[Path], st
 # -----------------------------
 @dataclass
 class HubConfig:
-    position_order: List[str]                  # length 8
-    locations: Dict[str, Dict[str, Any]]       # from config_file.json
+    position_order: List[str]
+    locations: Dict[str, Dict[str, Any]]
+    dynamic_limits: Dict[str, Any]
 
 
 class HubState:
     def __init__(self) -> None:
-        # Core flags
         self.enabled: bool = False
         self.running: bool = False
 
-        # Config + program
         self.config: Optional[HubConfig] = None
-        self.program: Optional[NPZProgram] = None
-        self.program_path: Optional[str] = None
+        self.program_spec: Optional[Any] = None
+        self.program_name: Optional[str] = None
+        self.compiled_timeline: Optional[Any] = None
 
-        # Timing
-        self.slice_period_ms: float = float(SLICE_PERIOD_MS_DEFAULT)
-        self.overrun_warn_ms: float = float(OVERRUN_WARN_MS_DEFAULT)
+        self.heartbeat_timeout_ms: float = float(HEARTBEAT_TIMEOUT_MS_DEFAULT)
+        self.stop_on_clamp: bool = False
+        self.last_heartbeat_at: float = 0.0
 
-        # Hardware (optional)
         self.pca: Optional[PCA9685] = None
         self.hardware_error: Optional[str] = None
 
-        # Control events
         self.stop_event = threading.Event()
 
-        # Runtime telemetry
-        self.frame_idx: int = 0
-        self.last_overrun_ms: float = 0.0
-        self.overrun_count: int = 0
+        self.packet_idx: int = 0
         self.last_warning: Optional[str] = None
+        self.last_run_reason: Optional[str] = None
 
-        # Execution thread
+        self.telemetry: List[Dict[str, Any]] = []
+
+        self.normal_angles: Dict[str, int] = {}
+
         self._thread: Optional[threading.Thread] = None
+        self._runtime_engine: Optional[ProgramRuntimeEngine] = None
+        self._hardware_lock = HardwareRuntimeLock()
         self._lock = threading.Lock()
 
     # ---------- Hardware ----------
     def _ensure_hardware(self) -> bool:
-        """
-        Lazy init hardware. Hub must be able to run without it (dev mode).
-        """
         if self.pca is not None:
             return True
         try:
@@ -177,11 +141,6 @@ class HubState:
 
     # ---------- Public operations ----------
     def load_config_from_disk(self) -> Tuple[bool, str]:
-        """
-        Loads:
-          - config/location_order.json (position_order list)
-          - config/config_file.json (channel + limits)
-        """
         with self._lock:
             if not _file_exists(LOCATION_ORDER_FILE):
                 return False, f"Missing {LOCATION_ORDER_FILE}"
@@ -203,192 +162,209 @@ class HubState:
                 if not isinstance(locs, dict):
                     return False, "config_file.json locations must be an object"
 
-                # Ensure keys exist for position_order
                 for k in cleaned:
                     if k not in locs:
                         return False, f"config_file.json missing location key '{k}'"
 
-                self.config = HubConfig(position_order=cleaned, locations=locs)
+                dyn = sim_store.load_dyn_vars(DYN_VARS_FILE, location_keys=cleaned)
+                self.config = HubConfig(position_order=cleaned, locations=locs, dynamic_limits=dyn)
+
+                # Initialize runtime state on first load.
+                if not self.normal_angles:
+                    self.normal_angles = {k: 135 for k in cleaned}
+                else:
+                    self.normal_angles = {k: clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in cleaned}
                 return True, "ok"
             except Exception as e:
                 return False, str(e)
 
-    def load_program(self, program_name_or_path: str) -> Tuple[bool, str]:
-        """
-        Loads NPZ ragged event list into memory.
-        Minimal checks happen here; full validation happens in writer.
-        """
-        p, msg = _resolve_program_path(program_name_or_path)
-        if p is None:
+    def load_program_json(self, raw_program: Dict[str, Any]) -> Tuple[bool, str]:
+        with self._lock:
+            if self.config is None:
+                return False, "Config not loaded"
+            locs = list(self.config.position_order)
+
+        ok, spec, msg = normalize_and_validate_program_spec(raw_program, location_keys=locs)
+        if not ok or spec is None:
             return False, msg
 
-        prog, err = load_program_npz(p)
-        if prog is None:
-            return False, err
-
         with self._lock:
-            self.program = prog
-            self.program_path = str(p)
+            self.program_spec = spec
+            self.program_name = spec.program_id
+            self.compiled_timeline = None
+            return True, "ok"
+
+    def compile_program(self, *, sparse_targets: bool = True, max_delta_per_tick: Optional[int] = None) -> Tuple[bool, str]:
+        with self._lock:
+            if self.config is None:
+                return False, "Config not loaded"
+            if self.program_spec is None:
+                return False, "Program not loaded"
+
+            timeline = compile_timeline(
+                self.program_spec,
+                location_keys=self.config.position_order,
+                start_state=self.normal_angles,
+                sparse_targets=bool(sparse_targets),
+                max_delta_per_tick=max_delta_per_tick,
+                apply_slew_limits=True,
+            )
+            self.compiled_timeline = timeline
             return True, "ok"
 
     def stop(self) -> None:
-        """
-        stop = stop pulses entirely and halt playback.
-        """
         with self._lock:
             self.enabled = False
             self.stop_event.set()
+            if self._runtime_engine is not None:
+                self._runtime_engine.request_stop()
 
-        # Stop outputs immediately (best effort)
         self._ensure_hardware()
         self._disable_outputs_best_effort()
+        self._hardware_lock.release()
 
         with self._lock:
             self.running = False
 
     def enable(self) -> Tuple[bool, str]:
-        """
-        enable = allow outputs again, but DO NOT send any motion.
-        """
         with self._lock:
             self.stop_event.clear()
             self.enabled = True
             self.last_warning = None
+            self.last_heartbeat_at = time.monotonic()
 
-        # Hardware is optional; enable can succeed without hardware (dev mode).
         ok = self._ensure_hardware()
         if not ok:
             return True, "enabled (hardware unavailable; dev mode)"
         return True, "enabled"
 
+    def heartbeat(self) -> None:
+        with self._lock:
+            self.last_heartbeat_at = time.monotonic()
+
+    def _should_stop_runtime(self, heartbeat_timeout_ms: float) -> bool:
+        if self.stop_event.is_set():
+            return True
+        if heartbeat_timeout_ms <= 0.0:
+            return False
+        with self._lock:
+            return (time.monotonic() - float(self.last_heartbeat_at)) * 1000.0 >= heartbeat_timeout_ms
+
     def start(self) -> Tuple[bool, str]:
-        """
-        Starts program playback in a thread.
-        Preconditions:
-          - enabled == True
-          - config loaded
-          - program loaded
-        """
         with self._lock:
             if not self.enabled:
                 return False, "Not enabled"
             if self.config is None:
                 return False, "Config not loaded"
-            if self.program is None:
+            if self.program_spec is None:
                 return False, "Program not loaded"
             if self.running:
                 return False, "Already running"
+            if self.compiled_timeline is None:
+                timeline = compile_timeline(
+                    self.program_spec,
+                    location_keys=self.config.position_order,
+                    start_state=self.normal_angles,
+                    sparse_targets=True,
+                    apply_slew_limits=True,
+                )
+                self.compiled_timeline = timeline
 
             self.running = True
-            self.frame_idx = 0
-            self.last_overrun_ms = 0.0
-            self.overrun_count = 0
+            self.packet_idx = 0
             self.last_warning = None
+            self.last_run_reason = None
+            self.stop_event.clear()
+            self.last_heartbeat_at = time.monotonic()
 
+        ok_lock, msg_lock = self._hardware_lock.acquire("hub_app")
+        if not ok_lock:
+            with self._lock:
+                self.running = False
+                self.last_warning = msg_lock
+            return False, msg_lock
+
+        with self._lock:
             self._thread = threading.Thread(target=self._run_loop, name="doggo_hub_loop", daemon=True)
             self._thread.start()
             return True, "started"
 
     # ---------- Execution loop ----------
     def _run_loop(self) -> None:
-        """
-        Sparse ragged event list playback, pointer-walk.
-        - Frame 0 must be dense (checked by loader)
-        - Subsequent frames sparse
-        - Never drops frames
-        - Deadline scheduling with monotonic clock
-        - Overrun warnings when lateness >= overrun_warn_ms
-        """
         with self._lock:
             cfg = self.config
-            prog = self.program
-            slice_period_ms = float(self.slice_period_ms)
-            overrun_warn_ms = float(self.overrun_warn_ms)
+            timeline = self.compiled_timeline
+            heartbeat_timeout_ms = float(self.heartbeat_timeout_ms)
+            stop_on_clamp = bool(self.stop_on_clamp)
 
-        if cfg is None or prog is None:
+        if cfg is None or timeline is None:
             with self._lock:
                 self.running = False
             return
 
-        hw_ok = self._ensure_hardware()
+        self._ensure_hardware()
 
-        period_s = max(0.001, slice_period_ms / 1000.0)
+        try:
+            cfg_view = build_config_state_view(
+                draft_cfg={"locations": cfg.locations},
+                dynamic_limits=cfg.dynamic_limits,
+                location_keys=cfg.position_order,
+            )
 
-        # Targets vector (degrees) by loc index 0..7.
-        # Frame 0 is dense (loader-validated), so we can initialize by consuming frame 0 events.
-        targets: List[int] = [0] * 8
+            safety = SafetyPipeline(
+                dynamic_limits=cfg_view.dynamic_limits,
+                servo_limits_by_location=cfg_view.servo_limits_by_location,
+            )
+            runner = CommandRunner(safety)
+            engine = ProgramRuntimeEngine(runner)
 
-        # Pointer-walk: arrays are numpy; keep an integer index
-        i = 0
-        n_events = int(prog.t.shape[0])
-
-        start_t = _now()
-        frame = 0
-        num_frames = int(prog.num_frames)
-
-        while frame < num_frames:
-            if self.stop_event.is_set():
-                break
-
-            deadline = start_t + frame * period_s
-
-            updated_locs: List[int] = []
-            while i < n_events and int(prog.t[i]) == frame:
-                loc_idx = int(prog.loc[i])
-                ang = int(prog.angle[i])
-                # loc and angle already bounds-checked by loader, but keep safe anyway
-                if 0 <= loc_idx <= 7:
-                    targets[loc_idx] = _clamp_int(ang, 0, 270)
-                    updated_locs.append(loc_idx)
-                i += 1
-
-            # Send only updated servos for this frame
-            if hw_ok and self.pca is not None and updated_locs:
-                for loc_idx in updated_locs:
-                    loc_key = cfg.position_order[loc_idx]
-                    loc_item = cfg.locations.get(loc_key, {})
-                    ch = loc_item.get("channel", None)
-                    if ch is None:
-                        continue
-                    try:
-                        ch_i = int(ch)
-                    except Exception:
-                        continue
-                    limits = _limits_from_cfg_item(loc_item)
-                    try:
-                        self.pca.set_channel_angle_deg(ch_i, int(targets[loc_idx]), limits=limits)
-                    except Exception as e:
-                        with self._lock:
-                            self.hardware_error = str(e)
-
-            # Lateness / overrun detection
-            now = _now()
-            lateness_ms = max(0.0, (now - deadline) * 1000.0)
-            if lateness_ms >= overrun_warn_ms:
-                with self._lock:
-                    self.last_overrun_ms = lateness_ms
-                    self.overrun_count += 1
-                    self.last_warning = (
-                        f"Overrun: lateness={lateness_ms:.3f}ms >= warn={overrun_warn_ms:.3f}ms. "
-                        f"Increase slice_period_ms (currently {slice_period_ms:.1f}ms) or reduce per-frame updates."
-                    )
-
-            # Sleep to next deadline (no drops)
-            next_deadline = start_t + (frame + 1) * period_s
-            sleep_s = next_deadline - _now()
-            if sleep_s > 0:
-                time.sleep(sleep_s)
-
-            frame += 1
             with self._lock:
-                self.frame_idx = frame
+                self._runtime_engine = engine
 
-        with self._lock:
-            self.running = False
+            result = engine.run(
+                timeline,
+                state_name="normal",
+                output_target="hardware",
+                dynamic_limits=cfg_view.dynamic_limits,
+                servo_limits_by_location=cfg_view.servo_limits_by_location,
+                channel_by_location=cfg_view.channel_by_location,
+                hardware=self.pca,
+                state_by_name={"normal": dict(self.normal_angles)},
+                stop_on_clamp=stop_on_clamp,
+                realtime=True,
+                stop_check=lambda: self._should_stop_runtime(heartbeat_timeout_ms),
+            )
 
-        # If stop requested, disable pulses
-        if self.stop_event.is_set() and hw_ok:
-            self._disable_outputs_best_effort()
+            with self._lock:
+                self.running = False
+                self.packet_idx = int(result.packets_executed)
+                self.last_run_reason = result.reason
+                self.normal_angles = dict(result.final_state_by_name.get("normal", self.normal_angles))
+                self.telemetry.extend(
+                    {
+                        "tick": t.tick,
+                        "t_ms": t.t_ms,
+                        "commands": t.commands,
+                        "clamped_count": t.clamped_count,
+                        "errors": list(t.errors),
+                    }
+                    for t in result.telemetry
+                )
+                # Keep telemetry bounded.
+                if len(self.telemetry) > 2000:
+                    self.telemetry = self.telemetry[-2000:]
+
+        except Exception as e:
+            with self._lock:
+                self.running = False
+                self.last_run_reason = "runtime_exception"
+                self.last_warning = str(e)
+        finally:
+            if self.stop_event.is_set():
+                self._disable_outputs_best_effort()
+            self._hardware_lock.release()
+            with self._lock:
+                self._runtime_engine = None
 
     # ---------- Status ----------
     def status(self) -> Dict[str, Any]:
@@ -397,17 +373,42 @@ class HubState:
                 "enabled": self.enabled,
                 "running": self.running,
                 "config_loaded": self.config is not None,
-                "program_loaded": self.program is not None,
-                "program_path": self.program_path,
-                "slice_period_ms": self.slice_period_ms,
-                "overrun_warn_ms": self.overrun_warn_ms,
-                "frame_idx": self.frame_idx,
-                "overrun_count": self.overrun_count,
-                "last_overrun_ms": self.last_overrun_ms,
+                "program_loaded": self.program_spec is not None,
+                "program_name": self.program_name,
+                "compiled_loaded": self.compiled_timeline is not None,
+                "compiled_summary": _summarize_timeline(self.compiled_timeline) if self.compiled_timeline is not None else None,
+                "heartbeat_timeout_ms": self.heartbeat_timeout_ms,
+                "stop_on_clamp": self.stop_on_clamp,
+                "packet_idx": self.packet_idx,
                 "last_warning": self.last_warning,
+                "last_run_reason": self.last_run_reason,
+                "hardware_lock_owner": self._hardware_lock.owner,
                 "hardware_available": self.pca is not None,
                 "hardware_error": self.hardware_error,
+                "telemetry_count": len(self.telemetry),
             }
+
+    def telemetry_tail(self, n: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            n = max(1, min(1000, int(n)))
+            return list(self.telemetry[-n:])
+
+    def program_preview(self, n: int) -> Dict[str, Any]:
+        with self._lock:
+            n = max(1, min(200, int(n)))
+            if self.compiled_timeline is None:
+                return {"ok": False, "error": "Program not compiled"}
+            ticks = self.compiled_timeline.ticks[:n]
+            out_ticks = [
+                {
+                    "tick": int(t.tick),
+                    "t_ms": int(t.t_ms),
+                    "targets": dict(t.targets),
+                    "meta": {"step_id": t.meta.step_id, "step_index": int(t.meta.step_index)},
+                }
+                for t in ticks
+            ]
+            return {"ok": True, "summary": _summarize_timeline(self.compiled_timeline), "ticks": out_ticks}
 
 
 # -----------------------------
@@ -429,6 +430,31 @@ def api_status():
     return jsonify(state.status())
 
 
+@app.get("/api/telemetry")
+def api_telemetry():
+    try:
+        tail = int(request.args.get("tail", 50))
+    except Exception:
+        tail = 50
+    return jsonify({"ok": True, "telemetry": state.telemetry_tail(tail)})
+
+
+@app.post("/api/heartbeat")
+def api_heartbeat():
+    state.heartbeat()
+    return jsonify({"ok": True, "status": state.status()})
+
+
+@app.get("/api/program_preview")
+def api_program_preview():
+    try:
+        count = int(request.args.get("count", 20))
+    except Exception:
+        count = 20
+    out = state.program_preview(count)
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
 @app.post("/api/load_config")
 def api_load_config():
     ok, msg = state.load_config_from_disk()
@@ -436,18 +462,61 @@ def api_load_config():
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
 
 
+@app.post("/api/load_program_json")
+def api_load_program_json():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    prog = data.get("program", None)
+    if not isinstance(prog, dict):
+        return jsonify({"ok": False, "error": "program must be an object"}), 400
+
+    ok, msg = state.load_program_json(prog)
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
+
+
 @app.post("/api/load_program")
 def api_load_program():
     """
-    Body:
-      { "program": "default_stance.npz" }
-    or:
-      { "program": "programs/default_stance.npz" }
+    Backward-compatible endpoint name.
+    New contract expects:
+      { "program": { ... program json ... } }
     """
     data = request.get_json(force=True)
-    prog = str(data.get("program", "")).strip()
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
 
-    ok, msg = state.load_program(prog)
+    prog = data.get("program", None)
+    if not isinstance(prog, dict):
+        return jsonify({"ok": False, "error": "program must be an object (NPZ path loading removed)"}), 400
+
+    ok, msg = state.load_program_json(prog)
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
+
+
+@app.post("/api/compile_program")
+def api_compile_program():
+    data = request.get_json(force=True) if request.data else {}
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    sparse_targets = bool(data.get("sparse_targets", True))
+    max_delta_raw = data.get("max_delta_per_tick", None)
+    max_delta = None
+    if max_delta_raw is not None:
+        try:
+            max_delta = int(max_delta_raw)
+        except Exception:
+            return jsonify({"ok": False, "error": "max_delta_per_tick must be an integer"}), 400
+        if max_delta < 1:
+            return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
+
+    ok, msg = state.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta)
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
 
@@ -470,47 +539,42 @@ def api_stop():
     return jsonify({"ok": True, "message": "stopped", "status": state.status()})
 
 
+@app.post("/api/estop")
+def api_estop():
+    state.stop()
+    return jsonify({"ok": True, "message": "estop", "status": state.status()})
+
+
 @app.post("/api/settings")
 def api_settings():
-    """
-    Body:
-      { "slice_period_ms": <float>, "overrun_warn_ms": <float> }
-    """
     data = request.get_json(force=True)
     if not isinstance(data, dict):
         return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
 
     updates: Dict[str, float] = {}
-    if "slice_period_ms" in data:
-        try:
-            slice_period_ms = float(data["slice_period_ms"])
-        except Exception:
-            return jsonify({"ok": False, "error": "slice_period_ms must be a number"}), 400
-        if not (SLICE_PERIOD_MS_MIN <= slice_period_ms <= SLICE_PERIOD_MS_MAX):
-            return jsonify(
-                {"ok": False, "error": f"slice_period_ms out of range {SLICE_PERIOD_MS_MIN}..{SLICE_PERIOD_MS_MAX}"}
-            ), 400
-        updates["slice_period_ms"] = slice_period_ms
+    bool_updates: Dict[str, bool] = {}
 
-    if "overrun_warn_ms" in data:
+    if "heartbeat_timeout_ms" in data:
         try:
-            overrun_warn_ms = float(data["overrun_warn_ms"])
+            heartbeat_timeout_ms = float(data["heartbeat_timeout_ms"])
         except Exception:
-            return jsonify({"ok": False, "error": "overrun_warn_ms must be a number"}), 400
-        if not (OVERRUN_WARN_MS_MIN <= overrun_warn_ms <= OVERRUN_WARN_MS_MAX):
+            return jsonify({"ok": False, "error": "heartbeat_timeout_ms must be a number"}), 400
+        if not (HEARTBEAT_TIMEOUT_MS_MIN <= heartbeat_timeout_ms <= HEARTBEAT_TIMEOUT_MS_MAX):
             return jsonify(
-                {"ok": False, "error": f"overrun_warn_ms out of range {OVERRUN_WARN_MS_MIN}..{OVERRUN_WARN_MS_MAX}"}
+                {"ok": False, "error": f"heartbeat_timeout_ms out of range {HEARTBEAT_TIMEOUT_MS_MIN}..{HEARTBEAT_TIMEOUT_MS_MAX}"}
             ), 400
-        updates["overrun_warn_ms"] = overrun_warn_ms
+        updates["heartbeat_timeout_ms"] = heartbeat_timeout_ms
+
+    if "stop_on_clamp" in data:
+        bool_updates["stop_on_clamp"] = bool(data["stop_on_clamp"])
 
     with state._lock:
-        if "slice_period_ms" in updates:
-            state.slice_period_ms = updates["slice_period_ms"]
-        if "overrun_warn_ms" in updates:
-            state.overrun_warn_ms = updates["overrun_warn_ms"]
+        if "heartbeat_timeout_ms" in updates:
+            state.heartbeat_timeout_ms = updates["heartbeat_timeout_ms"]
+        if "stop_on_clamp" in bool_updates:
+            state.stop_on_clamp = bool_updates["stop_on_clamp"]
     return jsonify({"ok": True, "status": state.status()})
 
 
 if __name__ == "__main__":
-    PROGRAMS_DIR.mkdir(parents=True, exist_ok=True)
     app.run(host="0.0.0.0", port=5001, debug=True)
