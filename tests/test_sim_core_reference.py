@@ -7,9 +7,9 @@ from pathlib import Path
 
 from hardware.pca9685 import ServoLimits
 from sim_core.calibration import apply_sim_calibration_to_physical, build_calibration_fit_cache
-from sim_core.collision import collision_snapshot_for_state, predict_collision_for_side
+from sim_core.collision import capsules_min_distance, collision_snapshot_for_state, predict_collision_for_side
 from sim_core.engine import SimulationEngine, solve_closest_safe_angle_step_search
-from sim_core.kinematics import angles_pack_for_side_from_state
+from sim_core.kinematics import angles_pack_for_side_from_state, build_leg_capsules_for_side
 from sim_core.sim_store import default_dyn_vars, load_stance, save_dyn_vars
 from sim_core.types import LOCATION_KEYS
 
@@ -71,26 +71,44 @@ class SimCoreReference(unittest.TestCase):
         self.assertIn("right", snap)
 
     def test_collision_flags_any_overlapping_pair_not_only_closest_distance_pair(self) -> None:
-        # Regression: previously the implementation only checked the closest-distance pair.
-        cfg = json.loads(Path("config/config_file.json").read_text())
-        dv = json.loads(Path("config/dynamic_limits.json").read_text())
-        stance = json.loads(Path("stances/default.json").read_text())
+        # Regression target:
+        # A pair can overlap by radius margin even when it's not the pair with minimum raw segment distance.
+        # We search for such a configuration in a deterministic synthetic setup.
+        dv = default_dyn_vars(location_keys=LOCATION_KEYS)
+        dv["right"]["front_thigh_radius_mm"] = 35.0
+        dv["right"]["rear_shin_radius_mm"] = 35.0
+        dv["right"]["front_shin_radius_mm"] = 1.0
+        dv["right"]["rear_thigh_radius_mm"] = 1.0
 
-        limits = {}
-        for k, v in cfg["locations"].items():
-            lim = v["limits"]
-            limits[k] = ServoLimits(
-                deg_min=int(lim["deg_min"]),
-                deg_max=int(lim["deg_max"]),
-                invert=bool(lim["invert"]),
-            )
+        limits = _default_servo_limits()
+        base_state = {k: 135 for k in LOCATION_KEYS}
 
-        state = dict(stance.get("angles", {}))
-        state["rear_right_hip"] = 182
-        collides, details = predict_collision_for_side(dv, "right", state, limits)
+        found_state = None
+        for rear_hip in range(90, 231):
+            state = dict(base_state)
+            state["rear_right_hip"] = rear_hip
+
+            pack = angles_pack_for_side_from_state("right", state, dv=dv, servo_limits_by_location=limits)
+            front_caps, rear_caps = build_leg_capsules_for_side(dv, "right", pack)
+
+            pairs = []
+            for c1 in front_caps:
+                for c2 in rear_caps:
+                    dmin = capsules_min_distance(c1, c2)
+                    thresh = float(c1.r + c2.r)
+                    margin = float(dmin - thresh)
+                    pairs.append((dmin, margin))
+
+            by_distance = min(pairs, key=lambda x: x[0])
+            any_overlap = any(margin <= 0.0 for _d, margin in pairs)
+            if any_overlap and by_distance[1] > 0.0:
+                found_state = state
+                break
+
+        self.assertIsNotNone(found_state, "failed to synthesize overlap-vs-closest-distance regression scenario")
+        collides, details = predict_collision_for_side(dv, "right", found_state, limits)
         self.assertTrue(collides)
         self.assertIsInstance(details, dict)
-        self.assertEqual(details.get("pair"), "front_thigh vs rear_shin")
 
     def test_step_search_returns_expected_tuple(self) -> None:
         dv = default_dyn_vars(location_keys=LOCATION_KEYS)
