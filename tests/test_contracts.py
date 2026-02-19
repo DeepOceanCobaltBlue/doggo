@@ -8,6 +8,7 @@ import types
 import unittest
 from pathlib import Path
 
+from motion_core import servo_limits_from_config_item
 from sim_core import sim_store
 from sim_core.kinematics import (
     angles_pack_for_side_from_state,
@@ -200,6 +201,77 @@ class ConfigApiContracts(unittest.TestCase):
         self.assertEqual(data["requested_angle"], 250)
         self.assertEqual(data["travel_applied_angle"], 180)
 
+    def test_command_normal_rejects_unassigned_channel(self) -> None:
+        client = self.config_app.app.test_client()
+        module = self.config_app
+        loc = "front_left_hip"
+        original = module._draft_cfg["locations"][loc]["channel"]
+        try:
+            module._draft_cfg["locations"][loc]["channel"] = None
+            resp = client.post("/api/command", json={"location": loc, "angle_deg": 150, "mode": "normal"})
+            self.assertEqual(resp.status_code, 409)
+            body = resp.get_json()
+            self.assertIn("unassigned", str(body.get("error", "")).lower())
+        finally:
+            module._draft_cfg["locations"][loc]["channel"] = original
+
+    def test_command_normal_rejects_when_hardware_unavailable(self) -> None:
+        client = self.config_app.app.test_client()
+        module = self.config_app
+        loc = "front_left_hip"
+        original_pca = module.pca
+        original_channel = module._draft_cfg["locations"][loc]["channel"]
+        try:
+            module._draft_cfg["locations"][loc]["channel"] = 0
+            module.pca = None
+            resp = client.post("/api/command", json={"location": loc, "angle_deg": 150, "mode": "normal"})
+            self.assertEqual(resp.status_code, 503)
+        finally:
+            module.pca = original_pca
+            module._draft_cfg["locations"][loc]["channel"] = original_channel
+
+    def test_command_mode_partition_test_only_updates_sim_state(self) -> None:
+        client = self.config_app.app.test_client()
+        before = client.get("/api/config").get_json()
+        loc = "front_left_hip"
+        hw_before = int(before["hw_angles"][loc])
+        sim_before = int(before["sim_angles"][loc])
+        target = min(270, sim_before + 10)
+
+        resp = client.post("/api/command", json={"location": loc, "angle_deg": target, "mode": "test"})
+        self.assertEqual(resp.status_code, 200)
+
+        after = client.get("/api/config").get_json()
+        self.assertEqual(int(after["hw_angles"][loc]), hw_before)
+        self.assertEqual(int(after["sim_angles"][loc]), int(resp.get_json()["applied_angle"]))
+
+    def test_command_mode_partition_normal_does_not_update_sim_state(self) -> None:
+        client = self.config_app.app.test_client()
+        module = self.config_app
+        loc = "front_left_hip"
+
+        class _StubPCA:
+            def set_channel_angle_deg(self, channel, angle_deg, limits=None):
+                return None
+
+        original_pca = module.pca
+        original_channel = module._draft_cfg["locations"][loc]["channel"]
+        try:
+            module.pca = _StubPCA()
+            module._draft_cfg["locations"][loc]["channel"] = 0
+            before = client.get("/api/config").get_json()
+            sim_before = int(before["sim_angles"][loc])
+            target = min(270, int(before["hw_angles"][loc]) + 10)
+
+            resp = client.post("/api/command", json={"location": loc, "angle_deg": target, "mode": "normal"})
+            self.assertEqual(resp.status_code, 200)
+
+            after = client.get("/api/config").get_json()
+            self.assertEqual(int(after["sim_angles"][loc]), sim_before)
+        finally:
+            module.pca = original_pca
+            module._draft_cfg["locations"][loc]["channel"] = original_channel
+
     def test_normal_mode_delegates_invert_to_hardware_layer(self) -> None:
         client = self.config_app.app.test_client()
         module = self.config_app
@@ -257,7 +329,10 @@ class ConfigApiContracts(unittest.TestCase):
         }
         dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
         dv["joint_calibration_map"] = {loc_key: "identity" for loc_key in LOCATION_KEYS}
-        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        servo_limits = {
+            loc_key: servo_limits_from_config_item(module._draft_cfg["locations"][loc_key])
+            for loc_key in LOCATION_KEYS
+        }
         pack = angles_pack_for_side_from_state("right", state, dv=dv, servo_limits_by_location=servo_limits)
         self.assertEqual(pack["front_hip"], 100.0)
         self.assertEqual(pack["front_knee"], 90.0)
@@ -314,10 +389,13 @@ class ConfigApiContracts(unittest.TestCase):
             ],
         }
         dv["joint_calibration_map"]["front_left_hip"] = "half"
-        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        servo_limits = {
+            loc_key: servo_limits_from_config_item(module._draft_cfg["locations"][loc_key])
+            for loc_key in LOCATION_KEYS
+        }
         pack = angles_pack_for_side_from_state("left", state, dv=dv, servo_limits_by_location=servo_limits)
-        limits = module._get_limits(module._draft_cfg, "front_left_hip")
-        _logical, physical = module.resolve_logical_and_physical_angle(200, limits)
+        limits = servo_limits_from_config_item(module._draft_cfg["locations"]["front_left_hip"])
+        _logical, physical = self.pca_mod.resolve_logical_and_physical_angle(200, limits)
         self.assertEqual(pack["front_hip"], float(physical) * 0.5)
 
     def test_default_profiles_include_hip_and_knee_standards(self) -> None:
@@ -352,7 +430,10 @@ class ConfigApiContracts(unittest.TestCase):
         dv["joint_calibration_map"]["front_left_knee"] = "knee_rel"
 
         state = {"front_left_hip": 120, "front_left_knee": 120}
-        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        servo_limits = {
+            loc_key: servo_limits_from_config_item(module._draft_cfg["locations"][loc_key])
+            for loc_key in LOCATION_KEYS
+        }
         pack = angles_pack_for_side_from_state("left", state, dv=dv, servo_limits_by_location=servo_limits)
         # Modes are relative-space; resulting pack values should differ from raw physical passthrough.
         self.assertNotEqual(pack["front_hip"], 120.0)
@@ -362,7 +443,10 @@ class ConfigApiContracts(unittest.TestCase):
         module = self.config_app
         dv = sim_store.default_dyn_vars(location_keys=LOCATION_KEYS)
         state = {loc_key: 135 for loc_key in LOCATION_KEYS}
-        servo_limits = {loc_key: module._get_limits(module._draft_cfg, loc_key) for loc_key in LOCATION_KEYS}
+        servo_limits = {
+            loc_key: servo_limits_from_config_item(module._draft_cfg["locations"][loc_key])
+            for loc_key in LOCATION_KEYS
+        }
 
         def front_shin_world_deg(off: float) -> float:
             local = json.loads(json.dumps(dv))

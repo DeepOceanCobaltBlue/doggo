@@ -9,10 +9,9 @@ from typing import Dict, Optional, List, Any, Tuple
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from hardware.pca9685 import PCA9685, ServoLimits, resolve_logical_and_physical_angle
+from hardware.pca9685 import PCA9685
+from motion_core import CommandRunner, SafetyPipeline, build_config_state_view, servo_limits_from_config_item
 from sim_core import sim_store
-from sim_core.collision import collision_snapshot_for_state as sim_collision_snapshot_for_state
-from sim_core.engine import SimulationEngine
 
 
 # -----------------------------
@@ -226,15 +225,6 @@ def _validate_no_duplicate_channels(cfg: Dict[str, Any]) -> Tuple[bool, str]:
     return True, ""
 
 
-def _get_limits(cfg: Dict[str, Any], loc_key: str) -> ServoLimits:
-    lim = cfg["locations"][loc_key]["limits"]
-    return ServoLimits(
-        deg_min=int(lim["deg_min"]),
-        deg_max=int(lim["deg_max"]),
-        invert=bool(lim["invert"]),
-    )
-
-
 # -----------------------------
 # Channel notes helpers
 # -----------------------------
@@ -273,8 +263,8 @@ def _startup_angle_state() -> Dict[str, int]:
     return {loc.key: int(angles.get(loc.key, 135)) for loc in LOCATIONS}
 
 
-def _servo_limits_by_location(cfg: Dict[str, Any]) -> Dict[str, ServoLimits]:
-    return {loc.key: _get_limits(cfg, loc.key) for loc in LOCATIONS}
+def _config_state_view():
+    return build_config_state_view(_draft_cfg, _dyn_vars, _stance_location_keys())
 
 
 # -----------------------------
@@ -302,9 +292,14 @@ except Exception as e:
 DEFAULT_NEUTRAL = 135
 _hw_angles: Dict[str, int] = _startup_angle_state()
 _sim_angles: Dict[str, int] = dict(_hw_angles)
-_sim_engine = SimulationEngine(dynamic_limits=_dyn_vars, servo_limits_by_location=_servo_limits_by_location(_draft_cfg))
-_sim_engine.set_state("normal", _hw_angles)
-_sim_engine.set_state("test", _sim_angles)
+_init_view = _config_state_view()
+_safety_pipeline = SafetyPipeline(
+    dynamic_limits=_init_view.dynamic_limits,
+    servo_limits_by_location=_init_view.servo_limits_by_location,
+)
+_command_runner = CommandRunner(_safety_pipeline)
+_safety_pipeline.set_state("normal", _hw_angles)
+_safety_pipeline.set_state("test", _sim_angles)
 
 
 # -----------------------------
@@ -316,75 +311,60 @@ def index():
 
 
 def _sync_sim_engine_inputs(include_states: bool = True) -> None:
-    _sim_engine.set_dynamic_limits(_dyn_vars)
-    _sim_engine.set_servo_limits_by_location(_servo_limits_by_location(_draft_cfg))
+    cfg_view = _config_state_view()
+    _safety_pipeline.set_dynamic_limits(cfg_view.dynamic_limits)
+    _safety_pipeline.set_servo_limits_by_location(cfg_view.servo_limits_by_location)
     if include_states:
-        _sim_engine.set_state("normal", _hw_angles)
-        _sim_engine.set_state("test", _sim_angles)
+        _safety_pipeline.set_state("normal", _hw_angles)
+        _safety_pipeline.set_state("test", _sim_angles)
 
 
 def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tuple[bool, Dict[str, Any], int]:
     global _hw_angles, _sim_angles
 
-    if loc_key not in _draft_cfg["locations"]:
+    cfg_view = _config_state_view()
+    if loc_key not in cfg_view.servo_limits_by_location:
         return False, {"ok": False, "error": f"Unknown location '{loc_key}'"}, 400
 
     if mode not in ("normal", "test"):
         mode = "normal"
 
     requested = _clamp_int(int(requested_angle), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
-
-    limits = _get_limits(_draft_cfg, loc_key)
-
-    _sync_sim_engine_inputs(include_states=True)
     state_name = "test" if mode == "test" else "normal"
-    try:
-        sim_out = _sim_engine.apply_command(state_name=state_name, loc_key=loc_key, requested_angle=requested)
-    except KeyError:
-        return False, {"ok": False, "error": f"Unknown location '{loc_key}'"}, 400
+    output_target = "sim" if mode == "test" else "hardware"
 
-    # In normal mode, require channel + hardware
+    out = _command_runner.execute(
+        state_name=state_name,
+        loc_key=loc_key,
+        requested_angle=requested,
+        output_target=output_target,
+        dynamic_limits=cfg_view.dynamic_limits,
+        servo_limits_by_location=cfg_view.servo_limits_by_location,
+        state_by_name={"normal": _hw_angles, "test": _sim_angles},
+        channel_by_location=cfg_view.channel_by_location,
+        hardware=pca,
+    )
+    if not out.ok:
+        return False, out.payload, out.status
+
     if mode == "normal":
-        ch = _draft_cfg["locations"][loc_key]["channel"]
-        if ch is None:
-            _sim_engine.set_state("normal", _hw_angles)
-            return False, {"ok": False, "error": f"Location '{loc_key}' is unassigned"}, 409
-        if pca is None:
-            _sim_engine.set_state("normal", _hw_angles)
-            return False, {"ok": False, "error": "Hardware not available (PCA9685 init failed)."}, 503
-
-        try:
-            # Keep high-level logic inversion-agnostic; hardware output handles invert.
-            pca.set_channel_angle_deg(int(ch), int(sim_out.applied_angle), limits=limits)
-        except Exception as e:
-            _sim_engine.set_state("normal", _hw_angles)
-            return False, {"ok": False, "error": f"Hardware command failed: {e}"}, 503
-        _hw_angles = _sim_engine.get_state("normal")
+        _hw_angles = out.updated_state
     else:
-        _sim_angles = _sim_engine.get_state("test")
+        _sim_angles = out.updated_state
 
     return (
         True,
         {
-            "ok": True,
             "mode": mode,
-            "requested_angle": int(sim_out.requested_angle),
-            "travel_applied_angle": int(sim_out.travel_applied_angle),
-            "applied_angle": int(sim_out.applied_angle),
-            "clamped": bool(sim_out.clamped),
-            "clamp_reason": sim_out.clamp_reason,
-            "collision": sim_out.collision,
+            **out.payload,
         },
-        200,
+        out.status,
     )
 
 
 def _collision_snapshot_for_state(state_angles: Dict[str, int]) -> Dict[str, Any]:
-    return sim_collision_snapshot_for_state(
-        dv=_dyn_vars,
-        state_angles=state_angles,
-        servo_limits_by_location=_servo_limits_by_location(_draft_cfg),
-    )
+    _sync_sim_engine_inputs(include_states=False)
+    return _safety_pipeline.collision_snapshot_for_state(state_angles)
 
 
 # -----------------------------
