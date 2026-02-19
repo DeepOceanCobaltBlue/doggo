@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, Optional
 
 from hardware.pca9685 import ServoLimits
+from .math_utils import clamp_int
 
 
 @dataclass(frozen=True)
@@ -12,11 +13,6 @@ class ConfigStateView:
     channel_by_location: Dict[str, Optional[int]]
     servo_limits_by_location: Dict[str, ServoLimits]
     dynamic_limits: Dict[str, Any]
-
-
-def clamp_int(x: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, x))
-
 
 def servo_limits_from_config_item(item: Mapping[str, Any]) -> ServoLimits:
     lim = item.get("limits", {}) if isinstance(item.get("limits", {}), dict) else {}

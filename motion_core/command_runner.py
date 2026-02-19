@@ -5,7 +5,8 @@ from typing import Any, Dict, Mapping, Optional
 
 from hardware.pca9685 import ServoLimits
 
-from .safety_pipeline import SafetyPipeline, clamp_int
+from .math_utils import clamp_int
+from .safety_pipeline import SafetyPipeline
 
 
 @dataclass(frozen=True)

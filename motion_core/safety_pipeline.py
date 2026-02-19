@@ -7,11 +7,7 @@ from hardware.pca9685 import ServoLimits
 from sim_core.collision import collision_snapshot_for_state
 from sim_core.engine import SimulationEngine
 from sim_core.types import ANGLE_MAX_DEG, ANGLE_MIN_DEG, CommandResult
-
-
-
-def clamp_int(x: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, x))
+from .math_utils import clamp_int
 
 
 @dataclass

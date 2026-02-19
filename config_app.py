@@ -10,7 +10,7 @@ from typing import Dict, Optional, List, Any, Tuple
 from flask import Flask, jsonify, request, send_from_directory
 
 from hardware.pca9685 import PCA9685
-from motion_core import CommandRunner, SafetyPipeline, build_config_state_view, servo_limits_from_config_item
+from motion_core import CommandRunner, SafetyPipeline, build_config_state_view, clamp_int, servo_limits_from_config_item
 from sim_core import sim_store
 
 
@@ -59,11 +59,6 @@ LOCATIONS: List[Location] = [
     Location("rear_right_hip", "Rear Right Hip"),
     Location("rear_right_knee", "Rear Right Knee"),
 ]
-
-
-def _clamp_int(x: int, lo: int, hi: int) -> int:
-    return max(lo, min(hi, x))
-
 
 def _all_channels() -> List[int]:
     return list(range(CHANNEL_MIN, CHANNEL_MAX + 1))
@@ -179,8 +174,8 @@ def _load_saved_config() -> Dict[str, Any]:
             except Exception:
                 raw_max = 270
 
-            deg_min = _clamp_int(raw_min, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
-            deg_max = _clamp_int(raw_max, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+            deg_min = clamp_int(raw_min, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+            deg_max = clamp_int(raw_max, ANGLE_MIN_DEG, ANGLE_MAX_DEG)
             if deg_max < deg_min:
                 deg_min, deg_max = deg_max, deg_min
             invert = bool(lim.get("invert", False))
@@ -329,7 +324,7 @@ def _execute_servo_command(loc_key: str, requested_angle: int, mode: str) -> Tup
     if mode not in ("normal", "test"):
         mode = "normal"
 
-    requested = _clamp_int(int(requested_angle), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+    requested = clamp_int(int(requested_angle), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
     state_name = "test" if mode == "test" else "normal"
     output_target = "sim" if mode == "test" else "hardware"
 
@@ -425,9 +420,9 @@ def api_set_dynamic_limits():
 
     # globals
     if "search_step_deg" in dv:
-        merged["search_step_deg"] = _clamp_int(sim_store.coerce_int(dv.get("search_step_deg"), merged["search_step_deg"]), 1, 45)
+        merged["search_step_deg"] = clamp_int(sim_store.coerce_int(dv.get("search_step_deg"), merged["search_step_deg"]), 1, 45)
     if "search_max_iters" in dv:
-        merged["search_max_iters"] = _clamp_int(sim_store.coerce_int(dv.get("search_max_iters"), merged["search_max_iters"]), 1, 5000)
+        merged["search_max_iters"] = clamp_int(sim_store.coerce_int(dv.get("search_max_iters"), merged["search_max_iters"]), 1, 5000)
 
     # sides
     side_template = sim_store.default_dyn_side()
@@ -688,8 +683,8 @@ def api_set_limits():
         return jsonify({"ok": False, "error": "deg_min/deg_max are required"}), 400
 
     try:
-        deg_min = _clamp_int(int(raw_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
-        deg_max = _clamp_int(int(raw_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+        deg_min = clamp_int(int(raw_min), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
+        deg_max = clamp_int(int(raw_max), ANGLE_MIN_DEG, ANGLE_MAX_DEG)
     except Exception:
         return jsonify({"ok": False, "error": "deg_min/deg_max must be integers"}), 400
 
