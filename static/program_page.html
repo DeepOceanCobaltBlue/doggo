@@ -31,7 +31,7 @@
         .wrap {
             display: grid;
             grid-template-columns: 1fr 360px;
-            grid-template-rows: minmax(0, 1fr) 220px;
+            grid-template-rows: minmax(0, 1fr) 300px;
             gap: 12px;
             padding: 12px;
             height: 100vh;
@@ -227,23 +227,25 @@
             display: grid;
             grid-template-columns: 230px minmax(0, 1fr);
             gap: 10px;
-        }
-        .timelineLeft {
             border: 1px solid var(--border);
             border-radius: 12px;
-            background: rgba(15, 18, 32, .45);
+            background: rgba(15, 18, 32, .35);
+            padding: 10px;
+            overflow: hidden;
+        }
+        .timelineLeft {
+            border-right: 1px solid rgba(255, 255, 255, .10);
             padding: 10px;
             display: flex;
             flex-direction: column;
             gap: 8px;
             min-height: 0;
+            overflow: auto;
         }
         .timelineRight {
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            background: rgba(15, 18, 32, .35);
             padding: 10px;
             min-height: 0;
+            overflow: auto;
         }
         .timelineLabelRows {
             display: grid;
