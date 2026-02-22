@@ -162,34 +162,53 @@
         .status { font-size: 12px; color: var(--muted); }
         .ok { color: var(--ok); }
         .danger { color: var(--danger); }
-        .poseBar {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
+        .simSplit {
             width: 80%;
-            padding: 8px 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, .14);
-            background: rgba(15, 18, 32, .72);
+            height: 80%;
+            display: grid;
+            grid-template-columns: 1fr 180px;
+            gap: 10px;
+            min-height: 0;
+        }
+        .simInfo {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(15, 18, 32, .55);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .simInfoTitle {
             font-size: 12px;
-        }
-        .poseChip {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, .16);
-            background: rgba(255, 255, 255, .04);
-            color: var(--text);
-            font-weight: 700;
-            letter-spacing: 0.02em;
-        }
-        .poseChipLabel {
             color: var(--muted);
-            font-weight: 600;
-            letter-spacing: normal;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .angleList {
+            display: grid;
+            gap: 8px;
+        }
+        .angleRow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, .14);
+            background: rgba(255, 255, 255, .03);
+            font-size: 13px;
+        }
+        .angleKey {
+            color: var(--muted);
+            font-weight: 700;
+        }
+        .angleVal {
+            color: var(--text);
+            font-weight: 800;
+            min-width: 40px;
+            text-align: right;
         }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
@@ -220,8 +239,7 @@
             }
 
             .bottom { grid-column: 1; }
-            .canvasWrap { width: 100%; height: 100%; }
-            .poseBar { width: 100%; }
+            .simSplit { width: 100%; height: 100%; grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -247,10 +265,20 @@
             </div>
 
             <div class="mainBody">
-                <div class="poseBar" id="poseInfo" aria-live="polite">-</div>
-                <div class="canvasWrap">
-                    <canvas id="viz"></canvas>
-                    <div class="canvasOverlay" id="vizOverlay"></div>
+                <div class="simSplit">
+                    <div class="canvasWrap">
+                        <canvas id="viz"></canvas>
+                        <div class="canvasOverlay" id="vizOverlay"></div>
+                    </div>
+                    <div class="simInfo" aria-live="polite">
+                        <div class="simInfoTitle">Joint Angles</div>
+                        <div class="angleList">
+                            <div class="angleRow"><span class="angleKey">FH</span><span class="angleVal" id="angFH">-</span></div>
+                            <div class="angleRow"><span class="angleKey">FK</span><span class="angleVal" id="angFK">-</span></div>
+                            <div class="angleRow"><span class="angleKey">RH</span><span class="angleVal" id="angRH">-</span></div>
+                            <div class="angleRow"><span class="angleKey">RK</span><span class="angleVal" id="angRK">-</span></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -664,11 +692,17 @@
 
             const g = buildVizGeometry();
             const overlay = document.getElementById("vizOverlay");
-            const poseInfo = document.getElementById("poseInfo");
+            const angFH = document.getElementById("angFH");
+            const angFK = document.getElementById("angFK");
+            const angRH = document.getElementById("angRH");
+            const angRK = document.getElementById("angRK");
 
             if (!g) {
                 overlay.textContent = "Waiting for simulation state...";
-                poseInfo.textContent = "-";
+                angFH.textContent = "-";
+                angFK.textContent = "-";
+                angRH.textContent = "-";
+                angRK.textContent = "-";
                 return;
             }
 
@@ -748,11 +782,10 @@
             drawJoint(Hr, 0.9);
             drawJoint(Kr, 0.8);
 
-            poseInfo.innerHTML =
-                `<span class="poseChip"><span class="poseChipLabel">FH</span>${Math.round(g.angles.a_fh)}</span>` +
-                `<span class="poseChip"><span class="poseChipLabel">FK</span>${Math.round(g.angles.a_fk)}</span>` +
-                `<span class="poseChip"><span class="poseChipLabel">RH</span>${Math.round(g.angles.a_rh)}</span>` +
-                `<span class="poseChip"><span class="poseChipLabel">RK</span>${Math.round(g.angles.a_rk)}</span>`;
+            angFH.textContent = String(Math.round(g.angles.a_fh));
+            angFK.textContent = String(Math.round(g.angles.a_fk));
+            angRH.textContent = String(Math.round(g.angles.a_rh));
+            angRK.textContent = String(Math.round(g.angles.a_rk));
 
             const sideStatus = collisionStatus?.test?.[g.side] || null;
             let collisionTxt = "Collision: unknown";
