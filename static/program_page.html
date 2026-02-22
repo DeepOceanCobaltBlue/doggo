@@ -221,50 +221,108 @@
             min-width: 40px;
             text-align: right;
         }
-        .timelineSplit {
+        .timelinePanel {
             flex: 1;
             min-height: 0;
-            display: grid;
-            grid-template-columns: 230px minmax(0, 1fr);
-            gap: 10px;
             border: 1px solid var(--border);
             border-radius: 12px;
             background: rgba(15, 18, 32, .35);
             padding: 10px;
-            overflow: hidden;
-        }
-        .timelineLeft {
-            border-right: 1px solid rgba(255, 255, 255, .10);
-            padding: 10px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            min-height: 0;
-            overflow: auto;
+            gap: 10px;
+            overflow: hidden;
         }
-        .timelineRight {
-            padding: 10px;
-            min-height: 0;
-            overflow: auto;
-        }
-        .timelineLabelRows {
-            display: grid;
-            gap: 6px;
-        }
-        .timelineLabelRow {
+        .timelineTop {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            border: 1px solid rgba(255, 255, 255, .14);
-            border-radius: 9px;
-            padding: 6px 8px;
-            font-size: 12px;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            border: 1px solid rgba(255, 255, 255, .10);
+            border-radius: 10px;
             background: rgba(255, 255, 255, .03);
+            padding: 8px;
+        }
+        .timelineTopLeft {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .timelineTopRight {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .timelineBody {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 220px minmax(0, 1fr);
+            gap: 0;
+            border: 1px solid rgba(255, 255, 255, .10);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .timelineLabels {
+            border-right: 1px solid rgba(255, 255, 255, .12);
+            background: rgba(255, 255, 255, .02);
+            display: grid;
+            grid-template-rows: repeat(4, 1fr);
+            min-height: 0;
+        }
+        .timelineLabelCell {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 0 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, .08);
+            font-size: 12px;
+        }
+        .timelineLabelCell:last-child {
+            border-bottom: none;
         }
         .timelineTag {
             color: var(--muted);
             font-weight: 700;
-            min-width: 58px;
+        }
+        .timelineTracksViewport {
+            overflow-x: auto;
+            overflow-y: hidden;
+            position: relative;
+            background: rgba(255, 255, 255, .01);
+        }
+        .timelineTracksInner {
+            position: relative;
+            min-height: 100%;
+            display: grid;
+            grid-template-rows: repeat(4, 1fr);
+        }
+        .timelineTrackRow {
+            border-bottom: 1px solid rgba(255, 255, 255, .08);
+            background-image:
+                repeating-linear-gradient(
+                    to right,
+                    rgba(255, 255, 255, .22) 0px,
+                    rgba(255, 255, 255, .22) 1px,
+                    transparent 1px,
+                    transparent 16px
+                );
+        }
+        .timelineTrackRow:last-child {
+            border-bottom: none;
+        }
+        .timelinePlayhead {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--accent);
+            box-shadow: 0 0 0 1px rgba(77, 163, 255, .35);
+            pointer-events: none;
         }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
@@ -296,7 +354,8 @@
 
             .bottom { grid-column: 1; }
             .simSplit { width: 100%; height: 100%; grid-template-columns: 1fr; }
-            .timelineSplit { grid-template-columns: 1fr; }
+            .timelineBody { grid-template-columns: 1fr; }
+            .timelineLabels { display: none; }
         }
     </style>
 </head>
@@ -380,43 +439,50 @@
         </aside>
 
         <footer class="bottom">
-            <div class="row tight" style="padding:8px 10px; border:1px solid var(--border); border-radius:12px; background:rgba(15,18,32,.5);">
-                <button id="btnFrameMinus10">-10 Frames</button>
-                <button id="btnFramePrev">Prev Frame</button>
-                <button id="btnFrameNext">Next Frame</button>
-                <button id="btnFramePlus10">+10 Frames</button>
-                <button id="btnFramePlay">Play</button>
-                <button id="btnFramePause">Pause</button>
-                <label class="muted" for="inpFrameNumber">Frame (tick)</label>
-                <input id="inpFrameNumber" type="number" min="0" step="1" value="0" style="width:110px;" />
-                <span class="muted" id="frameTotalTxt">/ 0</span>
-            </div>
-            <div class="timelineSplit">
-                <div class="timelineLeft">
-                    <div class="simInfoTitle">Timeline Side</div>
-                    <div class="row tight">
-                        <select id="timelineSideSelect" style="flex:1;">
+            <div class="timelinePanel">
+                <div class="timelineTop">
+                    <div class="timelineTopLeft">
+                        <button id="btnFrameMinus10">-10 Frames</button>
+                        <button id="btnFramePrev">Prev Frame</button>
+                        <button id="btnFrameNext">Next Frame</button>
+                        <button id="btnFramePlus10">+10 Frames</button>
+                        <button id="btnFramePlay">Play</button>
+                        <button id="btnFramePause">Pause</button>
+                        <label class="muted" for="inpFrameNumber">Frame (tick)</label>
+                        <input id="inpFrameNumber" type="number" min="0" step="1" value="0" style="width:110px;" />
+                        <span class="muted" id="frameTotalTxt">/ 0</span>
+                    </div>
+                    <div class="timelineTopRight">
+                        <label class="muted" for="timelineSideSelect">timeline side</label>
+                        <select id="timelineSideSelect">
                             <option value="left">Left Joints</option>
                             <option value="right">Right Joints</option>
                         </select>
-                    </div>
-                    <label class="muted" style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="timelineSync" checked />
-                        sync
-                    </label>
-                    <div class="timelineLabelRows">
-                        <div class="timelineLabelRow"><span class="timelineTag">Hip Front</span><span id="tlJoint1">front_left_hip</span></div>
-                        <div class="timelineLabelRow"><span class="timelineTag">Knee Front</span><span id="tlJoint2">front_left_knee</span></div>
-                        <div class="timelineLabelRow"><span class="timelineTag">Hip Rear</span><span id="tlJoint3">rear_left_hip</span></div>
-                        <div class="timelineLabelRow"><span class="timelineTag">Knee Rear</span><span id="tlJoint4">rear_left_knee</span></div>
+                        <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="timelineSync" checked />
+                            sync
+                        </label>
                     </div>
                 </div>
-                <div class="timelineRight">
-                    <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
-                    <div>Reserved for timeline UI.</div>
-                    <div style="margin-top:10px; font-size:12px;">
-                        <span id="timelineSummary">timeline: no compile yet</span>
+                <div class="timelineBody">
+                    <div class="timelineLabels">
+                        <div class="timelineLabelCell"><span class="timelineTag">Hip Front</span><span id="tlJoint1">front_left_hip</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Knee Front</span><span id="tlJoint2">front_left_knee</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Hip Rear</span><span id="tlJoint3">rear_left_hip</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Knee Rear</span><span id="tlJoint4">rear_left_knee</span></div>
                     </div>
+                    <div class="timelineTracksViewport" id="timelineTracksViewport">
+                        <div class="timelineTracksInner" id="timelineTracksInner">
+                            <div class="timelineTrackRow"></div>
+                            <div class="timelineTrackRow"></div>
+                            <div class="timelineTrackRow"></div>
+                            <div class="timelineTrackRow"></div>
+                            <div class="timelinePlayhead" id="timelinePlayhead"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="muted" style="font-size:12px;">
+                    <span id="timelineSummary">timeline: no compile yet</span>
                 </div>
             </div>
         </footer>
@@ -431,6 +497,7 @@
         let collisionStatus = null;
         let previewTicks = [];
         let previewTickMs = 20;
+        const TIMELINE_STEP_PX = 16;
         let simTickIdx = 0;
         let playTimer = null;
         let selectedFrameSide = "left";
@@ -464,7 +531,7 @@
             return ["front_left_hip", "front_left_knee", "rear_left_hip", "rear_left_knee"];
         }
 
-        function renderTimelineSidePanel() {
+        function renderTimelineSurface() {
             const keys = timelineJointKeys(timelineSide);
             document.getElementById("tlJoint1").textContent = keys[0];
             document.getElementById("tlJoint2").textContent = keys[1];
@@ -472,6 +539,27 @@
             document.getElementById("tlJoint4").textContent = keys[3];
             document.getElementById("timelineSideSelect").value = timelineSide;
             document.getElementById("timelineSync").checked = timelineSyncEnabled;
+
+            const viewport = document.getElementById("timelineTracksViewport");
+            const inner = document.getElementById("timelineTracksInner");
+            const playhead = document.getElementById("timelinePlayhead");
+            const tickCountRaw = Number(appStatus.compiled_summary?.num_ticks || 0);
+            const tickCount = Math.max(1, tickCountRaw);
+            const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
+            inner.style.width = `${widthPx}px`;
+
+            const clampedTick = Math.max(0, Math.min(tickCount - 1, Number(simTickIdx || 0)));
+            const playheadX = clampedTick * TIMELINE_STEP_PX;
+            playhead.style.left = `${playheadX}px`;
+
+            const margin = 80;
+            const vLeft = viewport.scrollLeft;
+            const vRight = vLeft + viewport.clientWidth;
+            if (playheadX < vLeft + margin) {
+                viewport.scrollLeft = Math.max(0, playheadX - margin);
+            } else if (playheadX > vRight - margin) {
+                viewport.scrollLeft = Math.max(0, playheadX - viewport.clientWidth + margin);
+            }
         }
 
         function applyUiState() {
@@ -501,7 +589,7 @@
             const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
             document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
-            renderTimelineSidePanel();
+            renderTimelineSurface();
         }
 
         async function api(url, method = "GET", body = null) {
@@ -1084,7 +1172,10 @@
             await seekTick(n);
         });
 
-        window.addEventListener("resize", renderViz);
+        window.addEventListener("resize", () => {
+            renderViz();
+            renderTimelineSurface();
+        });
 
         document.getElementById("frameLeft").addEventListener("change", () => {
             if (!document.getElementById("frameLeft").checked) return;
@@ -1102,14 +1193,14 @@
         });
         document.getElementById("timelineSideSelect").addEventListener("change", () => {
             timelineSide = document.getElementById("timelineSideSelect").value === "right" ? "right" : "left";
-            renderTimelineSidePanel();
+            renderTimelineSurface();
         });
         document.getElementById("timelineSync").addEventListener("change", () => {
             timelineSyncEnabled = !!document.getElementById("timelineSync").checked;
             if (timelineSyncEnabled) {
                 timelineSide = selectedFrameSide;
             }
-            renderTimelineSidePanel();
+            renderTimelineSurface();
         });
 
         applyUiState();
