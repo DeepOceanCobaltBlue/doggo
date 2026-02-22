@@ -334,6 +334,7 @@
         .timelineRuler {
             position: relative;
             border-bottom: 1px solid rgba(255, 255, 255, .08);
+            background-color: rgba(8, 10, 18, .55);
             background-image:
                 repeating-linear-gradient(
                     to right,
@@ -349,24 +350,27 @@
                     transparent 1px,
                     transparent 80px
                 );
+            overflow: hidden;
         }
         .timelineRulerLabels {
             position: absolute;
             inset: 0;
+            z-index: 2;
             pointer-events: none;
-            overflow: hidden;
         }
         .timelineRulerLabel {
             position: absolute;
-            top: 3px;
-            transform: translateX(-50%);
+            top: 50%;
+            transform: translate(-50%, -50%);
             font-size: 11px;
-            color: #d9deef;
-            text-shadow: 0 1px 0 rgba(0, 0, 0, .55);
+            color: #f1f4ff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
             white-space: nowrap;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            line-height: 1;
         }
         .timelineRulerLabel.first {
-            transform: none;
+            transform: translateY(-50%);
         }
         .timelineTrackRow {
             border-bottom: 1px solid rgba(255, 255, 255, .08);
@@ -616,6 +620,7 @@
             const tickCount = Math.max(1, tickCountRaw);
             const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
             inner.style.width = `${widthPx}px`;
+            rulerLabels.style.width = `${widthPx}px`;
 
             const lastRendered = Number(rulerLabels.dataset.tickCount || 0);
             if (lastRendered !== tickCount) {
@@ -625,7 +630,7 @@
                     el.className = "timelineRulerLabel";
                     if (i === 0) {
                         el.classList.add("first");
-                        el.style.left = "4px";
+                        el.style.left = "2px";
                     } else {
                         el.style.left = `${i * TIMELINE_STEP_PX}px`;
                     }
