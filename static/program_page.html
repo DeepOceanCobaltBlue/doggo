@@ -443,11 +443,6 @@
             .simSplit { width: 100%; height: 100%; grid-template-columns: 1fr; }
             .timelineBody { grid-template-columns: 1fr; }
             .timelineLabels { display: none; }
-            .mainHeader {
-                flex: 0 0 136px;
-                min-height: 136px;
-                max-height: 136px;
-            }
         }
     </style>
 </head>
@@ -455,24 +450,6 @@
 <body>
     <div class="wrap">
         <section class="main">
-            <div class="mainHeader">
-                <div class="headerRow">
-                    <h1 class="title">Doggo Programming</h1>
-                </div>
-                <div class="headerRow">
-                    <div class="controlInline">
-                        <button class="primary" id="btnLoadConfig">Load Config</button>
-                        <button class="primary" id="btnLoadProgram">Load Program</button>
-                        <button class="primary" id="btnCompile">Compile</button>
-                    </div>
-                    <div class="controlInline">
-                        <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
-                        <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
-                        <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
-                    </div>
-                </div>
-            </div>
-
             <div class="mainBody">
                 <div class="simSplit">
                     <div class="canvasWrap">
@@ -506,6 +483,16 @@
             <div style="font-weight:900; margin-bottom:8px;">Right Control Bar</div>
             <details open>
                 <summary>Program Settings</summary>
+                <div class="pillbar" style="margin-top:10px;">
+                    <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
+                    <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
+                    <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <button class="primary" id="btnLoadConfig">Load Config</button>
+                    <button class="primary" id="btnLoadProgram">Load Program</button>
+                    <button class="primary" id="btnCompile">Compile</button>
+                </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
                         <input id="inpSparse" type="checkbox" checked />
