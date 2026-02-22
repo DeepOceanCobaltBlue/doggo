@@ -458,11 +458,6 @@
             <div class="mainHeader">
                 <div class="headerRow">
                     <h1 class="title">Doggo Programming</h1>
-                    <div class="controlInline">
-                        <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
-                        <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
-                        <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
-                    </div>
                 </div>
                 <div class="headerRow">
                     <div class="controlInline">
@@ -471,20 +466,9 @@
                         <button class="primary" id="btnCompile">Compile</button>
                     </div>
                     <div class="controlInline">
-                        <label class="muted" style="display:flex;align-items:center;gap:8px;">
-                            <input id="inpSparse" type="checkbox" checked />
-                            <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
-                        </label>
-                        <div style="width: 160px;">
-                            <input
-                                id="inpMaxDelta"
-                                type="number"
-                                min="1"
-                                step="1"
-                                placeholder="max_delta_per_tick"
-                                title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
-                            />
-                        </div>
+                        <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
+                        <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
+                        <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
                     </div>
                 </div>
             </div>
@@ -520,6 +504,25 @@
 
         <aside class="sidebar">
             <div style="font-weight:900; margin-bottom:8px;">Right Control Bar</div>
+            <details open>
+                <summary>Program Settings</summary>
+                <div class="row" style="margin-top:10px;">
+                    <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                        <input id="inpSparse" type="checkbox" checked />
+                        <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
+                    </label>
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <input
+                        id="inpMaxDelta"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="max_delta_per_tick"
+                        title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
+                    />
+                </div>
+            </details>
             <div style="margin-top:12px; font-size:12px;">
                 <div>- Placeholder: gait controls</div>
                 <div>- Placeholder: interpolation/smoothing knobs</div>
