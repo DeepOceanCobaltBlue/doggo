@@ -673,8 +673,8 @@
             document.getElementById("btnFrameMinus10").disabled = !hasCompiled;
             document.getElementById("btnFramePlus10").disabled = !hasCompiled;
             document.getElementById("btnFrameNext").disabled = !hasCompiled;
-            document.getElementById("btnFramePlay").disabled = !hasCompiled;
-            document.getElementById("btnFramePause").disabled = !hasCompiled;
+            document.getElementById("btnFramePlay").disabled = false;
+            document.getElementById("btnFramePause").disabled = false;
             document.getElementById("inpFrameNumber").disabled = !hasCompiled;
 
             const summary = appStatus.compiled_summary;
@@ -1195,22 +1195,34 @@
         }
 
         function startPlayback() {
-            if (!previewTicks.length) {
-                setStatus("compile a program first", "danger");
-                return;
-            }
             if (playTimer !== null) return;
 
-            const tickMs = Math.max(1, Number(previewTickMs || 20));
+            const hasCompiledTimeline = !!appStatus.compiled_loaded && previewTicks.length > 0;
+            const tickMs = Math.max(1, Number(hasCompiledTimeline ? (previewTickMs || 20) : 80));
             document.getElementById("btnFramePlay").textContent = "Playing...";
+            if (!hasCompiledTimeline) {
+                setStatus("playing timeline cursor (no compiled program loaded)", "muted");
+            }
             playTimer = setInterval(async () => {
-                if (!previewTicks.length) return;
-                const next = simTickIdx + 1;
-                if (next >= previewTicks.length) {
-                    stopPlayback();
+                if (hasCompiledTimeline) {
+                    const next = simTickIdx + 1;
+                    if (next >= previewTicks.length) {
+                        stopPlayback();
+                        return;
+                    }
+                    await seekTick(next);
                     return;
                 }
-                await seekTick(next);
+
+                const viewport = document.getElementById("timelineTracksViewport");
+                const visibleTickCount = Math.max(
+                    20,
+                    Math.floor(Math.max(0, (viewport.clientWidth || 480) - 20) / TIMELINE_STEP_PX) + 1
+                );
+                const maxTick = Math.max(1, visibleTickCount) - 1;
+                simTickIdx = simTickIdx >= maxTick ? 0 : (simTickIdx + 1);
+                appStatus.sim_tick_idx = simTickIdx;
+                applyUiState();
             }, tickMs);
         }
 
