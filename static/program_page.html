@@ -377,6 +377,7 @@
             transform: none;
         }
         .timelineTrackRow {
+            position: relative;
             border-bottom: 1px solid rgba(255, 255, 255, .08);
             background-image:
                 repeating-linear-gradient(
@@ -386,9 +387,40 @@
                     transparent 1px,
                     transparent 16px
                 );
+            cursor: crosshair;
         }
         .timelineTrackRow:last-child {
             border-bottom: none;
+        }
+        .timelineEventBlock {
+            position: absolute;
+            top: 4px;
+            height: calc(100% - 8px);
+            border-radius: 8px;
+            border: 1px solid rgba(77, 163, 255, .8);
+            background: rgba(77, 163, 255, .28);
+            color: #eaf3ff;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            padding: 0 6px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .timelineEventBlock.selected {
+            border-color: #ffd166;
+            box-shadow: 0 0 0 1px rgba(255, 209, 102, .75);
+            background: rgba(255, 209, 102, .25);
+            color: #fff6dc;
+        }
+        .timelineEventBlock.conflict {
+            border-color: #ff5d5d;
+            box-shadow: 0 0 0 1px rgba(255, 93, 93, .75);
         }
         .timelinePlayhead {
             position: absolute;
@@ -510,6 +542,31 @@
                     />
                 </div>
             </details>
+            <details open style="margin-top:10px;">
+                <summary>Event Properties</summary>
+                <div class="row" style="margin-top:10px;">
+                    <label class="muted" for="evtStart">start frame</label>
+                    <input id="evtStart" type="number" min="0" step="1" disabled />
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <label class="muted" for="evtEnd">end frame</label>
+                    <input id="evtEnd" type="number" min="0" step="1" disabled />
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <label class="muted" for="evtAngle">angle</label>
+                    <input id="evtAngle" type="number" min="0" max="270" step="1" disabled />
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <button id="btnDeleteEvent" disabled>Delete Event</button>
+                    <button id="btnNudgeLeft" disabled>Nudge -1</button>
+                    <button id="btnNudgeRight" disabled>Nudge +1</button>
+                </div>
+                <div class="muted" style="margin-top:6px; font-size:12px;">
+                    Shortcuts: <code>Delete</code> remove, <code>←/→</code> nudge 1, <code>Shift+←/→</code> nudge 10
+                </div>
+                <div class="danger" id="evtError" style="margin-top:8px; font-size:12px; display:none;"></div>
+                <div class="muted" id="evtInfo" style="margin-top:8px;">No event selected</div>
+            </details>
             <div style="margin-top:12px; font-size:12px;">
                 <div>- Placeholder: gait controls</div>
                 <div>- Placeholder: interpolation/smoothing knobs</div>
@@ -540,11 +597,11 @@
                         </select>
                         <label class="muted" style="display:flex;align-items:center;gap:8px;">
                             <input type="checkbox" id="timelineSync" checked />
-                            sync
+                            <span title="When enabled, timeline side follows the selected simulation frame side (Left/Right).">sync</span>
                         </label>
                         <label class="muted" style="display:flex;align-items:center;gap:8px;">
                             <input type="checkbox" id="timelineLoop" checked />
-                            loop
+                            <span title="When enabled, playback wraps at the end and continues from frame 0. When disabled, playback stops and resets to frame 0.">loop</span>
                         </label>
                     </div>
                 </div>
@@ -561,10 +618,10 @@
                             <div class="timelineRuler">
                                 <div class="timelineRulerLabels" id="timelineRulerLabels"></div>
                             </div>
-                            <div class="timelineTrackRow"></div>
-                            <div class="timelineTrackRow"></div>
-                            <div class="timelineTrackRow"></div>
-                            <div class="timelineTrackRow"></div>
+                            <div class="timelineTrackRow" data-row="0"></div>
+                            <div class="timelineTrackRow" data-row="1"></div>
+                            <div class="timelineTrackRow" data-row="2"></div>
+                            <div class="timelineTrackRow" data-row="3"></div>
                             <div class="timelinePlayhead" id="timelinePlayhead"></div>
                         </div>
                     </div>
@@ -589,13 +646,256 @@
         let timelineSide = "left";
         let timelineSyncEnabled = true;
         let timelineLoopEnabled = true;
+        let timelineEvents = [];
+        let selectedEventId = null;
+        let dragState = null;
         let appStatus = {
             config_loaded: false,
             program_loaded: false,
             compiled_loaded: false,
             compiled_summary: null,
             sim_tick_idx: 0,
+            timeline_event_count: 0,
         };
+
+        function eventById(eventId) {
+            return timelineEvents.find((e) => Number(e.id) === Number(eventId)) || null;
+        }
+
+        function timelineJointKeysForSide(side) {
+            if (side === "right") {
+                return ["front_right_hip", "front_right_knee", "rear_right_hip", "rear_right_knee"];
+            }
+            return ["front_left_hip", "front_left_knee", "rear_left_hip", "rear_left_knee"];
+        }
+
+        function rowIndexForJoint(side, jointKey) {
+            const keys = timelineJointKeysForSide(side);
+            return keys.indexOf(jointKey);
+        }
+
+        function selectedEvent() {
+            if (selectedEventId === null) return null;
+            return timelineEvents.find((e) => Number(e.id) === Number(selectedEventId)) || null;
+        }
+
+        function setEventError(msg = "") {
+            const errEl = document.getElementById("evtError");
+            if (!errEl) return;
+            const text = String(msg || "").trim();
+            errEl.textContent = text;
+            errEl.style.display = text ? "block" : "none";
+        }
+
+        function renderEventPropertiesPanel() {
+            const evt = selectedEvent();
+            const startEl = document.getElementById("evtStart");
+            const endEl = document.getElementById("evtEnd");
+            const angleEl = document.getElementById("evtAngle");
+            const deleteEl = document.getElementById("btnDeleteEvent");
+            const nudgeLeftEl = document.getElementById("btnNudgeLeft");
+            const nudgeRightEl = document.getElementById("btnNudgeRight");
+            const infoEl = document.getElementById("evtInfo");
+
+            if (!evt) {
+                startEl.value = "";
+                endEl.value = "";
+                angleEl.value = "";
+                startEl.disabled = true;
+                endEl.disabled = true;
+                angleEl.disabled = true;
+                deleteEl.disabled = true;
+                nudgeLeftEl.disabled = true;
+                nudgeRightEl.disabled = true;
+                infoEl.textContent = "No event selected";
+                return;
+            }
+
+            startEl.disabled = false;
+            endEl.disabled = false;
+            angleEl.disabled = false;
+            deleteEl.disabled = false;
+            nudgeLeftEl.disabled = false;
+            nudgeRightEl.disabled = false;
+            startEl.value = String(evt.start_frame);
+            endEl.value = String(evt.end_frame);
+            angleEl.value = String(evt.angle_deg);
+            infoEl.textContent = `event #${evt.id} (${evt.side})`;
+        }
+
+        async function loadTimelineEvents() {
+            const resp = await api(`/api/timeline/events?side=${encodeURIComponent(timelineSide)}`);
+            if (!resp.ok) return;
+            timelineEvents = Array.isArray(resp.data?.events) ? resp.data.events : [];
+            const stillExists = timelineEvents.some((e) => Number(e.id) === Number(selectedEventId));
+            if (!stillExists) selectedEventId = null;
+            renderTimelineSurface();
+            renderEventPropertiesPanel();
+        }
+
+        async function updateSelectedEventFromInputs() {
+            const evt = selectedEvent();
+            if (!evt) return;
+            const startVal = Number.parseInt(String(document.getElementById("evtStart").value || "").trim(), 10);
+            const endVal = Number.parseInt(String(document.getElementById("evtEnd").value || "").trim(), 10);
+            const angleVal = Number.parseInt(String(document.getElementById("evtAngle").value || "").trim(), 10);
+            if (!Number.isFinite(startVal) || !Number.isFinite(endVal) || !Number.isFinite(angleVal)) {
+                setEventError("start, end, and angle must be integers");
+                await loadTimelineEvents();
+                return;
+            }
+            if (startVal < 0 || endVal < 0) {
+                setEventError("start and end frame must be >= 0");
+                await loadTimelineEvents();
+                return;
+            }
+            if (endVal < startVal) {
+                setEventError("end frame must be >= start frame");
+                await loadTimelineEvents();
+                return;
+            }
+            if (angleVal < 0 || angleVal > 270) {
+                setEventError("angle must be in 0..270");
+                await loadTimelineEvents();
+                return;
+            }
+            const resp = await api(`/api/timeline/events/${evt.id}`, "PATCH", {
+                start_frame: startVal,
+                end_frame: endVal,
+                angle_deg: angleVal,
+            });
+            if (!resp.ok) {
+                setEventError(resp.data?.error || "update failed");
+                await loadTimelineEvents();
+                return;
+            }
+            setEventError("");
+            await loadTimelineEvents();
+            await refreshStatus();
+        }
+
+        async function deleteSelectedEvent() {
+            const evt = selectedEvent();
+            if (!evt) return;
+            const resp = await api(`/api/timeline/events/${evt.id}`, "DELETE");
+            if (!resp.ok) {
+                setStatus(resp.data?.error || "delete failed", "danger");
+                setEventError(resp.data?.error || "delete failed");
+                return;
+            }
+            setEventError("");
+            selectedEventId = null;
+            await loadTimelineEvents();
+            await refreshStatus();
+            setStatus("event deleted", "ok");
+        }
+
+        async function nudgeSelectedEvent(deltaFrames) {
+            const evt = selectedEvent();
+            if (!evt) return;
+            const delta = Number.parseInt(String(deltaFrames), 10);
+            if (!Number.isFinite(delta) || delta === 0) return;
+
+            const span = Math.max(0, Number(evt.end_frame) - Number(evt.start_frame));
+            const nextStart = Math.max(0, Number(evt.start_frame) + delta);
+            const nextEnd = nextStart + span;
+            const resp = await api(`/api/timeline/events/${evt.id}`, "PATCH", {
+                start_frame: nextStart,
+                end_frame: nextEnd,
+                angle_deg: Number(evt.angle_deg),
+            });
+            if (!resp.ok) {
+                setEventError(resp.data?.error || "nudge failed");
+                await loadTimelineEvents();
+                return;
+            }
+            setEventError("");
+            await loadTimelineEvents();
+            await refreshStatus();
+        }
+
+        function keyboardFocusBlocksShortcuts(targetEl) {
+            if (!targetEl) return false;
+            const tag = String(targetEl.tagName || "").toLowerCase();
+            if (tag === "input" || tag === "textarea" || tag === "select" || tag === "button") return true;
+            if (targetEl.isContentEditable) return true;
+            return false;
+        }
+
+        function beginEventDrag(mouseDownEvent, evt) {
+            mouseDownEvent.preventDefault();
+            mouseDownEvent.stopPropagation();
+            const blockEl = mouseDownEvent.currentTarget;
+            const rect = blockEl.getBoundingClientRect();
+            const localX = mouseDownEvent.clientX - rect.left;
+            const edgePx = 8;
+            let mode = "move";
+            if (localX <= edgePx) mode = "resize_left";
+            else if (localX >= rect.width - edgePx) mode = "resize_right";
+
+            dragState = {
+                eventId: Number(evt.id),
+                mode,
+                originClientX: mouseDownEvent.clientX,
+                originStart: Number(evt.start_frame),
+                originEnd: Number(evt.end_frame),
+            };
+            document.body.style.userSelect = "none";
+            document.body.style.cursor = mode === "move" ? "grabbing" : "ew-resize";
+            window.addEventListener("mousemove", onEventDragMove);
+            window.addEventListener("mouseup", onEventDragEnd, { once: true });
+        }
+
+        function onEventDragMove(ev) {
+            if (!dragState) return;
+            const evt = eventById(dragState.eventId);
+            if (!evt) return;
+
+            const dx = ev.clientX - dragState.originClientX;
+            const deltaFrames = Math.round(dx / TIMELINE_STEP_PX);
+            let nextStart = dragState.originStart;
+            let nextEnd = dragState.originEnd;
+
+            if (dragState.mode === "move") {
+                nextStart = Math.max(0, dragState.originStart + deltaFrames);
+                const span = dragState.originEnd - dragState.originStart;
+                nextEnd = nextStart + span;
+            } else if (dragState.mode === "resize_left") {
+                nextStart = Math.max(0, Math.min(dragState.originEnd, dragState.originStart + deltaFrames));
+            } else if (dragState.mode === "resize_right") {
+                nextEnd = Math.max(dragState.originStart, dragState.originEnd + deltaFrames);
+            }
+
+            evt.start_frame = nextStart;
+            evt.end_frame = nextEnd;
+            renderTimelineSurface();
+            renderEventPropertiesPanel();
+        }
+
+        async function onEventDragEnd() {
+            window.removeEventListener("mousemove", onEventDragMove);
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
+            if (!dragState) return;
+
+            const eventId = dragState.eventId;
+            dragState = null;
+            const evt = eventById(eventId);
+            if (!evt) return;
+            const resp = await api(`/api/timeline/events/${eventId}`, "PATCH", {
+                start_frame: evt.start_frame,
+                end_frame: evt.end_frame,
+                angle_deg: evt.angle_deg,
+            });
+            if (!resp.ok) {
+                setEventError(resp.data?.error || "drag update failed");
+                await loadTimelineEvents();
+                return;
+            }
+            setEventError("");
+            selectedEventId = Number(eventId);
+            await loadTimelineEvents();
+        }
 
         function setStatus(text, cls = "") {
             const el = document.getElementById("statusText");
@@ -658,19 +958,89 @@
             } else if (playheadX > vRight - margin) {
                 viewport.scrollLeft = Math.max(0, playheadX - viewport.clientWidth + margin);
             }
+
+            const sideKeys = timelineJointKeysForSide(timelineSide);
+            const trackRows = Array.from(inner.querySelectorAll(".timelineTrackRow"));
+            for (const rowEl of trackRows) {
+                rowEl.querySelectorAll(".timelineEventBlock").forEach((el) => el.remove());
+                const rowIdx = Number(rowEl.dataset.row || -1);
+                const jointKey = sideKeys[rowIdx] || "";
+                const rowEvents = timelineEvents
+                    .filter((e) => e.side === timelineSide && e.joint_key === jointKey)
+                    .sort((a, b) => Number(a.start_frame) - Number(b.start_frame));
+
+                let prevEnd = -1;
+                for (const evt of rowEvents) {
+                    const block = document.createElement("div");
+                    block.className = "timelineEventBlock";
+                    if (Number(selectedEventId) === Number(evt.id)) {
+                        block.classList.add("selected");
+                    }
+                    const start = Number(evt.start_frame);
+                    const end = Number(evt.end_frame);
+                    const widthFrames = Math.max(1, (end - start + 1));
+                    const leftPx = start * TIMELINE_STEP_PX;
+                    const widthPxEvent = Math.max(TIMELINE_STEP_PX, widthFrames * TIMELINE_STEP_PX);
+                    block.style.left = `${leftPx}px`;
+                    block.style.width = `${widthPxEvent}px`;
+                    block.textContent = String(evt.angle_deg);
+                    if (start <= prevEnd) block.classList.add("conflict");
+                    prevEnd = Math.max(prevEnd, end);
+                    block.title = `${evt.joint_key}: ${evt.start_frame}-${evt.end_frame} @ ${evt.angle_deg}°`;
+                    block.addEventListener("click", (ev) => {
+                        ev.stopPropagation();
+                        selectedEventId = Number(evt.id);
+                        renderTimelineSurface();
+                        renderEventPropertiesPanel();
+                    });
+                    block.addEventListener("mousedown", (ev) => beginEventDrag(ev, evt));
+                    rowEl.appendChild(block);
+                }
+
+                if (!rowEl.dataset.bound) {
+                    rowEl.dataset.bound = "1";
+                    rowEl.addEventListener("click", async (ev) => {
+                        if (ev.target && ev.target.closest(".timelineEventBlock")) return;
+                        const rowIdxLocal = Number(rowEl.dataset.row || -1);
+                        const keysNow = timelineJointKeysForSide(timelineSide);
+                        const joint = keysNow[rowIdxLocal];
+                        if (!joint) return;
+                        const rect = rowEl.getBoundingClientRect();
+                        const xPx = Math.max(0, (ev.clientX - rect.left) + viewport.scrollLeft);
+                        const frame = Math.max(0, Math.floor(xPx / TIMELINE_STEP_PX));
+                        const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[joint] ?? 135)));
+                        const resp = await api("/api/timeline/events", "POST", {
+                            side: timelineSide,
+                            joint_key: joint,
+                            start_frame: frame,
+                            end_frame: frame,
+                            angle_deg: Math.round(defaultAngle),
+                        });
+                        if (!resp.ok) {
+                            setEventError(resp.data?.error || "event create failed");
+                            return;
+                        }
+                        setEventError("");
+                        selectedEventId = Number(resp.data?.event?.id || null);
+                        await loadTimelineEvents();
+                        await refreshStatus();
+                    });
+                }
+            }
         }
 
         function applyUiState() {
             const hasConfig = !!appStatus.config_loaded;
             const hasProgram = !!appStatus.program_loaded;
             const hasCompiled = !!appStatus.compiled_loaded;
+            const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
 
             setBadge("dotConfig", "txtConfig", hasConfig, `config: ${hasConfig ? "loaded" : "not loaded"}`);
             setBadge("dotProgram", "txtProgram", hasProgram, `program: ${hasProgram ? "loaded" : "not loaded"}`);
             setBadge("dotCompiled", "txtCompiled", hasCompiled, `compiled: ${hasCompiled ? "loaded" : "not loaded"}`);
 
             document.getElementById("btnLoadProgram").disabled = !hasConfig;
-            document.getElementById("btnCompile").disabled = !(hasConfig && hasProgram);
+            document.getElementById("btnCompile").disabled = !(hasConfig && (hasProgram || hasTimelineEvents));
             document.getElementById("btnFramePrev").disabled = !hasCompiled;
             document.getElementById("btnFrameMinus10").disabled = !hasCompiled;
             document.getElementById("btnFramePlus10").disabled = !hasCompiled;
@@ -685,6 +1055,7 @@
             document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
             renderTimelineSurface();
+            renderEventPropertiesPanel();
         }
 
         async function api(url, method = "GET", body = null) {
@@ -1164,16 +1535,20 @@
                 setStatus("load config first", "danger");
                 return;
             }
-            if (!appStatus.program_loaded) {
-                setStatus("load program JSON first", "danger");
-                return;
-            }
             const sparse_targets = !!document.getElementById("inpSparse").checked;
             const maxDeltaRaw = String(document.getElementById("inpMaxDelta").value || "").trim();
             const body = { sparse_targets };
             if (maxDeltaRaw) body.max_delta_per_tick = Number(maxDeltaRaw);
+            const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
+            if (hasTimelineEvents) {
+                body.tick_ms = 20;
+            } else if (!appStatus.program_loaded) {
+                setStatus("add timeline events or load program JSON first", "danger");
+                return;
+            }
 
-            const resp = await api("/api/compile_program", "POST", body);
+            const compileUrl = hasTimelineEvents ? "/api/timeline/compile" : "/api/compile_program";
+            const resp = await api(compileUrl, "POST", body);
             if (!resp.ok) {
                 setStatus(resp.data?.error || "compile failed", "danger");
                 return;
@@ -1185,7 +1560,7 @@
             appStatus.compiled_summary = prev.ok ? (prev.data?.summary || null) : null;
             appStatus.compiled_loaded = !!previewTicks.length;
             await seekTick(0);
-            setStatus(`compiled (${previewTicks.length} ticks)`, "ok");
+            setStatus(`compiled ${hasTimelineEvents ? "timeline" : "program"} (${previewTicks.length} ticks)`, "ok");
             await refreshStatus();
         }
 
@@ -1316,31 +1691,78 @@
         document.getElementById("frameLeft").addEventListener("change", () => {
             if (!document.getElementById("frameLeft").checked) return;
             selectedFrameSide = "left";
-            if (timelineSyncEnabled) timelineSide = selectedFrameSide;
-            applyUiState();
+            if (timelineSyncEnabled) {
+                timelineSide = selectedFrameSide;
+                loadTimelineEvents();
+            } else {
+                applyUiState();
+            }
             renderViz();
         });
         document.getElementById("frameRight").addEventListener("change", () => {
             if (!document.getElementById("frameRight").checked) return;
             selectedFrameSide = "right";
-            if (timelineSyncEnabled) timelineSide = selectedFrameSide;
-            applyUiState();
+            if (timelineSyncEnabled) {
+                timelineSide = selectedFrameSide;
+                loadTimelineEvents();
+            } else {
+                applyUiState();
+            }
             renderViz();
         });
         document.getElementById("timelineSideSelect").addEventListener("change", () => {
             timelineSide = document.getElementById("timelineSideSelect").value === "right" ? "right" : "left";
-            renderTimelineSurface();
+            loadTimelineEvents();
         });
         document.getElementById("timelineSync").addEventListener("change", () => {
             timelineSyncEnabled = !!document.getElementById("timelineSync").checked;
             if (timelineSyncEnabled) {
                 timelineSide = selectedFrameSide;
             }
-            renderTimelineSurface();
+            loadTimelineEvents();
         });
         document.getElementById("timelineLoop").addEventListener("change", () => {
             timelineLoopEnabled = !!document.getElementById("timelineLoop").checked;
             renderTimelineSurface();
+        });
+        document.getElementById("evtStart").addEventListener("change", async () => {
+            await updateSelectedEventFromInputs();
+        });
+        document.getElementById("evtEnd").addEventListener("change", async () => {
+            await updateSelectedEventFromInputs();
+        });
+        document.getElementById("evtAngle").addEventListener("change", async () => {
+            await updateSelectedEventFromInputs();
+        });
+        document.getElementById("btnDeleteEvent").addEventListener("click", async () => {
+            await deleteSelectedEvent();
+        });
+        document.getElementById("btnNudgeLeft").addEventListener("click", async () => {
+            await nudgeSelectedEvent(-1);
+        });
+        document.getElementById("btnNudgeRight").addEventListener("click", async () => {
+            await nudgeSelectedEvent(1);
+        });
+        document.addEventListener("keydown", async (ev) => {
+            if (keyboardFocusBlocksShortcuts(ev.target)) return;
+            if (!selectedEvent()) return;
+
+            const key = String(ev.key || "");
+            if (key === "Delete" || key === "Backspace") {
+                ev.preventDefault();
+                await deleteSelectedEvent();
+                return;
+            }
+            if (key === "ArrowLeft") {
+                ev.preventDefault();
+                await nudgeSelectedEvent(ev.shiftKey ? -10 : -1);
+                return;
+            }
+            if (key === "ArrowRight") {
+                ev.preventDefault();
+                await nudgeSelectedEvent(ev.shiftKey ? 10 : 1);
+                return;
+            }
         });
 
         applyUiState();
@@ -1350,9 +1772,11 @@
                 setStatus("config loaded", "ok");
                 await refreshStatus();
                 await refreshSimState();
+                await loadTimelineEvents();
             } else {
                 setStatus(loadResp.data?.message || "auto-load config failed", "danger");
                 await refreshStatus();
+                await loadTimelineEvents();
             }
         })();
         renderViz();

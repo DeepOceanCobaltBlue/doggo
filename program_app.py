@@ -45,6 +45,26 @@ class ProgramConfig:
     servo_limits_by_location: Dict[str, Any]
 
 
+@dataclass
+class TimelineEvent:
+    id: int
+    side: str
+    joint_key: str
+    start_frame: int
+    end_frame: int
+    angle_deg: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": int(self.id),
+            "side": str(self.side),
+            "joint_key": str(self.joint_key),
+            "start_frame": int(self.start_frame),
+            "end_frame": int(self.end_frame),
+            "angle_deg": int(self.angle_deg),
+        }
+
+
 class ProgramState:
     def __init__(self) -> None:
         self.config: Optional[ProgramConfig] = None
@@ -57,7 +77,62 @@ class ProgramState:
         self.sim_angles: Dict[str, int] = {}
         self.sim_tick_idx: int = 0
 
+        self.timeline_events: List[TimelineEvent] = []
+        self._next_event_id: int = 1
+
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _timeline_joint_keys_for_side(side: str) -> List[str]:
+        if side == "right":
+            return ["front_right_hip", "front_right_knee", "rear_right_hip", "rear_right_knee"]
+        return ["front_left_hip", "front_left_knee", "rear_left_hip", "rear_left_knee"]
+
+    def _validate_timeline_event_fields(
+        self,
+        *,
+        side: Any,
+        joint_key: Any,
+        start_frame: Any,
+        end_frame: Any,
+        angle_deg: Any,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        side_s = str(side).strip().lower()
+        if side_s not in ("left", "right"):
+            return False, {}, "side must be 'left' or 'right'"
+
+        joint_s = str(joint_key).strip()
+        if joint_s not in self._timeline_joint_keys_for_side(side_s):
+            return False, {}, f"joint_key '{joint_s}' is invalid for side '{side_s}'"
+
+        try:
+            start_i = int(start_frame)
+            end_i = int(end_frame)
+        except Exception:
+            return False, {}, "start_frame/end_frame must be integers"
+        if start_i < 0 or end_i < 0:
+            return False, {}, "start_frame/end_frame must be >= 0"
+        if end_i < start_i:
+            return False, {}, "end_frame must be >= start_frame"
+
+        try:
+            angle_i = int(angle_deg)
+        except Exception:
+            return False, {}, "angle_deg must be an integer"
+        if not (0 <= angle_i <= 270):
+            return False, {}, "angle_deg must be in 0..270"
+
+        return (
+            True,
+            {
+                "side": side_s,
+                "joint_key": joint_s,
+                "start_frame": start_i,
+                "end_frame": end_i,
+                "angle_deg": angle_i,
+            },
+            "ok",
+        )
 
     def load_config_from_disk(self) -> Tuple[bool, str]:
         with self._lock:
@@ -242,7 +317,164 @@ class ProgramState:
                 "compiled_loaded": self.compiled_timeline is not None,
                 "compiled_summary": summarize_timeline(self.compiled_timeline) if self.compiled_timeline is not None else None,
                 "sim_tick_idx": int(self.sim_tick_idx),
+                "timeline_event_count": len(self.timeline_events),
             }
+
+    def list_timeline_events(self, *, side: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._lock:
+            if side is None:
+                events = self.timeline_events
+            else:
+                side_s = str(side).strip().lower()
+                events = [e for e in self.timeline_events if e.side == side_s]
+            return [e.to_dict() for e in events]
+
+    def create_timeline_event(self, payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
+        ok, cleaned, msg = self._validate_timeline_event_fields(
+            side=payload.get("side"),
+            joint_key=payload.get("joint_key"),
+            start_frame=payload.get("start_frame"),
+            end_frame=payload.get("end_frame"),
+            angle_deg=payload.get("angle_deg"),
+        )
+        if not ok:
+            return False, {}, msg
+
+        with self._lock:
+            overlap_id = self._find_timeline_overlap_id(
+                side=cleaned["side"],
+                joint_key=cleaned["joint_key"],
+                start_frame=int(cleaned["start_frame"]),
+                end_frame=int(cleaned["end_frame"]),
+                ignore_event_id=None,
+            )
+            if overlap_id is not None:
+                return False, {}, f"event overlaps existing event #{overlap_id} on {cleaned['joint_key']}"
+            event = TimelineEvent(id=self._next_event_id, **cleaned)
+            self._next_event_id += 1
+            self.timeline_events.append(event)
+            return True, event.to_dict(), "ok"
+
+    def update_timeline_event(self, event_id: int, payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
+        with self._lock:
+            target: Optional[TimelineEvent] = None
+            for e in self.timeline_events:
+                if e.id == event_id:
+                    target = e
+                    break
+            if target is None:
+                return False, {}, "event not found"
+
+            candidate = {
+                "side": payload.get("side", target.side),
+                "joint_key": payload.get("joint_key", target.joint_key),
+                "start_frame": payload.get("start_frame", target.start_frame),
+                "end_frame": payload.get("end_frame", target.end_frame),
+                "angle_deg": payload.get("angle_deg", target.angle_deg),
+            }
+
+        ok, cleaned, msg = self._validate_timeline_event_fields(**candidate)
+        if not ok:
+            return False, {}, msg
+
+        with self._lock:
+            overlap_id = self._find_timeline_overlap_id(
+                side=cleaned["side"],
+                joint_key=cleaned["joint_key"],
+                start_frame=int(cleaned["start_frame"]),
+                end_frame=int(cleaned["end_frame"]),
+                ignore_event_id=int(event_id),
+            )
+            if overlap_id is not None:
+                return False, {}, f"event overlaps existing event #{overlap_id} on {cleaned['joint_key']}"
+            for i, e in enumerate(self.timeline_events):
+                if e.id == event_id:
+                    self.timeline_events[i] = TimelineEvent(id=event_id, **cleaned)
+                    return True, self.timeline_events[i].to_dict(), "ok"
+            return False, {}, "event not found"
+
+    def _find_timeline_overlap_id(
+        self,
+        *,
+        side: str,
+        joint_key: str,
+        start_frame: int,
+        end_frame: int,
+        ignore_event_id: Optional[int],
+    ) -> Optional[int]:
+        for existing in self.timeline_events:
+            if ignore_event_id is not None and int(existing.id) == int(ignore_event_id):
+                continue
+            if existing.side != side or existing.joint_key != joint_key:
+                continue
+            disjoint = end_frame < int(existing.start_frame) or start_frame > int(existing.end_frame)
+            if not disjoint:
+                return int(existing.id)
+        return None
+
+    def delete_timeline_event(self, event_id: int) -> Tuple[bool, str]:
+        with self._lock:
+            before = len(self.timeline_events)
+            self.timeline_events = [e for e in self.timeline_events if e.id != event_id]
+            if len(self.timeline_events) == before:
+                return False, "event not found"
+            return True, "ok"
+
+    def compile_timeline_events(
+        self,
+        *,
+        tick_ms: int = 20,
+        sparse_targets: bool = True,
+        max_delta_per_tick: Optional[int] = None,
+    ) -> Tuple[bool, str]:
+        with self._lock:
+            if self.config is None:
+                return False, "Config not loaded"
+            events = list(self.timeline_events)
+            location_keys = list(self.config.position_order)
+
+        if not events:
+            return False, "No timeline events"
+
+        tick_ms_i = max(1, int(tick_ms))
+        events_sorted = sorted(events, key=lambda e: int(e.id))
+        max_frame = max(int(e.end_frame) for e in events_sorted)
+
+        steps: List[Dict[str, Any]] = []
+        for frame in range(max_frame + 1):
+            targets: Dict[str, int] = {}
+            for ev in events_sorted:
+                if ev.start_frame <= frame <= ev.end_frame:
+                    targets[ev.joint_key] = int(ev.angle_deg)
+            if not targets:
+                continue
+            commands = [
+                {
+                    "location": k,
+                    "target_angle": int(v),
+                    "duration_ms": tick_ms_i,
+                    "easing": "linear",
+                }
+                for k, v in sorted(targets.items())
+            ]
+            steps.append({"step_id": f"f{frame}", "commands": commands})
+
+        if not steps:
+            return False, "No active timeline commands to compile"
+
+        raw_program = {
+            "program_id": "timeline_events_program",
+            "tick_ms": tick_ms_i,
+            "steps": steps,
+        }
+
+        ok_load, msg_load = self.load_program_json(raw_program)
+        if not ok_load:
+            return False, msg_load
+        ok_comp, msg_comp = self.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta_per_tick)
+        if not ok_comp:
+            return False, msg_comp
+        return True, "ok"
 
 
 app = Flask(__name__)
@@ -266,6 +498,44 @@ def api_load_config():
     ok, msg = state.load_config_from_disk()
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
+
+
+@app.get("/api/timeline/events")
+def api_timeline_events_get():
+    side = request.args.get("side", None)
+    if side is not None:
+        side = str(side).strip().lower()
+        if side not in ("left", "right"):
+            return jsonify({"ok": False, "error": "side must be 'left' or 'right'"}), 400
+    events = state.list_timeline_events(side=side)
+    return jsonify({"ok": True, "events": events})
+
+
+@app.post("/api/timeline/events")
+def api_timeline_events_post():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    ok, event, msg = state.create_timeline_event(data)
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "event": event if ok else None, "error": None if ok else msg}), code
+
+
+@app.patch("/api/timeline/events/<int:event_id>")
+def api_timeline_events_patch(event_id: int):
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    ok, event, msg = state.update_timeline_event(event_id, data)
+    code = 200 if ok else 404 if msg == "event not found" else 400
+    return jsonify({"ok": ok, "event": event if ok else None, "error": None if ok else msg}), code
+
+
+@app.delete("/api/timeline/events/<int:event_id>")
+def api_timeline_events_delete(event_id: int):
+    ok, msg = state.delete_timeline_event(event_id)
+    code = 200 if ok else 404
+    return jsonify({"ok": ok, "error": None if ok else msg}), code
 
 
 @app.get("/api/sim_state")
@@ -348,6 +618,42 @@ def api_compile_program():
             return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
 
     ok, msg = state.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta)
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
+
+
+@app.post("/api/timeline/compile")
+def api_timeline_compile():
+    data = request.get_json(force=True) if request.data else {}
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    sparse_targets = bool(data.get("sparse_targets", True))
+    tick_ms_raw = data.get("tick_ms", 20)
+    try:
+        tick_ms = int(tick_ms_raw)
+    except Exception:
+        return jsonify({"ok": False, "error": "tick_ms must be an integer"}), 400
+    if tick_ms < 1:
+        return jsonify({"ok": False, "error": "tick_ms must be >= 1"}), 400
+
+    max_delta_raw = data.get("max_delta_per_tick", None)
+    max_delta = None
+    if max_delta_raw is not None:
+        try:
+            max_delta = int(max_delta_raw)
+        except Exception:
+            return jsonify({"ok": False, "error": "max_delta_per_tick must be an integer"}), 400
+        if max_delta < 1:
+            return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
+
+    ok, msg = state.compile_timeline_events(
+        tick_ms=tick_ms,
+        sparse_targets=sparse_targets,
+        max_delta_per_tick=max_delta,
+    )
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
 

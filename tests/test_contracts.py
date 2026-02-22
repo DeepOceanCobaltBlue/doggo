@@ -652,6 +652,17 @@ class ProgramApiContracts(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.program_app = importlib.import_module("program_app")
 
+    def setUp(self) -> None:
+        state = self.program_app.state
+        with state._lock:
+            state.timeline_events = []
+            state._next_event_id = 1
+            state.program_spec = None
+            state.program_name = None
+            state.compiled_timeline = None
+            state.compiled_dense_states = []
+            state.sim_tick_idx = 0
+
     def test_program_flow_compile_preview_and_sim_seek(self) -> None:
         client = self.program_app.app.test_client()
 
@@ -717,6 +728,124 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(client.post("/api/sim_seek", json={"tick": "abc"}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": "abc"}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": 0}).status_code, 400)
+
+    def test_program_timeline_event_crud_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        list0 = client.get("/api/timeline/events?side=left")
+        self.assertEqual(list0.status_code, 200)
+        self.assertTrue(list0.get_json()["ok"])
+
+        bad_side = client.get("/api/timeline/events?side=middle")
+        self.assertEqual(bad_side.status_code, 400)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 3,
+                "end_frame": 6,
+                "angle_deg": 150,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        body = created.get_json()
+        self.assertTrue(body["ok"])
+        event_id = int(body["event"]["id"])
+
+        bad_create = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_right_hip",
+                "start_frame": 0,
+                "end_frame": 1,
+                "angle_deg": 120,
+            },
+        )
+        self.assertEqual(bad_create.status_code, 400)
+
+        overlap_create = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 5,
+                "end_frame": 7,
+                "angle_deg": 140,
+            },
+        )
+        self.assertEqual(overlap_create.status_code, 400)
+
+        updated = client.patch(f"/api/timeline/events/{event_id}", json={"start_frame": 4, "end_frame": 8, "angle_deg": 165})
+        self.assertEqual(updated.status_code, 200)
+        self.assertTrue(updated.get_json()["ok"])
+        self.assertEqual(int(updated.get_json()["event"]["start_frame"]), 4)
+        self.assertEqual(int(updated.get_json()["event"]["end_frame"]), 8)
+        self.assertEqual(int(updated.get_json()["event"]["angle_deg"]), 165)
+
+        second = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 10,
+                "end_frame": 12,
+                "angle_deg": 150,
+            },
+        )
+        self.assertEqual(second.status_code, 200)
+        second_id = int(second.get_json()["event"]["id"])
+
+        overlap_update = client.patch(
+            f"/api/timeline/events/{second_id}",
+            json={"start_frame": 8, "end_frame": 11},
+        )
+        self.assertEqual(overlap_update.status_code, 400)
+
+        missing = client.patch("/api/timeline/events/999999", json={"angle_deg": 90})
+        self.assertEqual(missing.status_code, 404)
+
+        deleted = client.delete(f"/api/timeline/events/{event_id}")
+        self.assertEqual(deleted.status_code, 200)
+        self.assertTrue(deleted.get_json()["ok"])
+
+    def test_program_timeline_compile_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        none_compile = client.post("/api/timeline/compile", json={"tick_ms": 20, "sparse_targets": True})
+        self.assertEqual(none_compile.status_code, 400)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 0,
+                "end_frame": 5,
+                "angle_deg": 150,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        compiled = client.post("/api/timeline/compile", json={"tick_ms": 20, "sparse_targets": True})
+        self.assertEqual(compiled.status_code, 200)
+        self.assertTrue(compiled.get_json()["ok"])
+
+        prev = client.get("/api/program_preview?count=10")
+        self.assertEqual(prev.status_code, 200)
+        prev_body = prev.get_json()
+        self.assertTrue(prev_body["ok"])
+        self.assertGreater(len(prev_body.get("ticks", [])), 0)
+
+        seek = client.post("/api/sim_seek", json={"tick": 0})
+        self.assertEqual(seek.status_code, 200)
+        self.assertTrue(seek.get_json()["ok"])
 
 if __name__ == "__main__":
     unittest.main()
