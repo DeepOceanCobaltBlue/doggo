@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "active_side": "left",
+  "active_side": "right",
   "search_step_deg": 1,
   "search_max_iters": 300,
   "left": {
@@ -156,9 +156,9 @@
     "front_left_knee": "knee_standard",
     "front_right_hip": "hip_standard_cw",
     "front_right_knee": "knee_standard",
-    "rear_left_hip": "hip_standard_cw",
-    "rear_left_knee": "knee_standard",
-    "rear_right_hip": "hip_standard_cw",
-    "rear_right_knee": "knee_standard"
+    "rear_left_hip": "hip_standard",
+    "rear_left_knee": "knee_standard_cw",
+    "rear_right_hip": "hip_standard",
+    "rear_right_knee": "knee_standard_cw"
   }
 }
