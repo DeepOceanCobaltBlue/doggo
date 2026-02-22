@@ -634,21 +634,21 @@
                 <div class="grid2">
                     <div class="field">
                         <label class="muted">Hip line vs front thigh</label>
-                        <input id="geoHipFront" type="text" value="—" readonly />
+                        <input id="geoHipFront" type="number" step="0.1" />
                     </div>
                     <div class="field">
                         <label class="muted">Hip line vs rear thigh</label>
-                        <input id="geoHipRear" type="text" value="—" readonly />
+                        <input id="geoHipRear" type="number" step="0.1" />
                     </div>
                 </div>
                 <div class="grid2">
                     <div class="field">
                         <label class="muted">Front thigh vs shin</label>
-                        <input id="geoRelFront" type="text" value="—" readonly />
+                        <input id="geoRelFront" type="number" step="0.1" />
                     </div>
                     <div class="field">
                         <label class="muted">Rear thigh vs shin</label>
-                        <input id="geoRelRear" type="text" value="—" readonly />
+                        <input id="geoRelRear" type="number" step="0.1" />
                     </div>
                 </div>
 
@@ -1976,11 +1976,86 @@
         function setGeoReadout(id, v) {
             const el = document.getElementById(id);
             if (!el) return;
+            if (document.activeElement === el) return;
             if (!Number.isFinite(v)) {
-                el.value = "—";
+                el.value = "";
                 return;
             }
-            el.value = `${v.toFixed(1)} deg`;
+            el.value = `${v.toFixed(1)}`;
+        }
+
+        function clampGeoTarget(v) {
+            return Math.max(0, Math.min(180, Number(v)));
+        }
+
+        function geoMetricFromGeometry(g, metricKey) {
+            if (!g) return NaN;
+            if (metricKey === "hip_front") return Number(g.baselines.hip_vs_front_thigh_deg);
+            if (metricKey === "hip_rear") return Number(g.baselines.hip_vs_rear_thigh_deg);
+            if (metricKey === "knee_front") return Number(g.relative.front_deg);
+            if (metricKey === "knee_rear") return Number(g.relative.rear_deg);
+            return NaN;
+        }
+
+        function solveOffsetForGeoTarget(offsetKey, metricKey, targetDeg) {
+            if (!dynVars) return { ok: false, error: "Dynamic limits unavailable." };
+            const side = activeSide();
+            const s = dynVars[side] || {};
+            const original = toFloat(s[offsetKey], 0);
+            if (!Number.isFinite(original)) return { ok: false, error: "Current offset is invalid." };
+
+            // Brute-force local search around current offset to avoid branch jumps.
+            let bestOffset = original;
+            let bestErr = Infinity;
+            const lo = original - 180.0;
+            const hi = original + 180.0;
+            const step = 0.5;
+
+            for (let off = lo; off <= hi + 1e-9; off += step) {
+                s[offsetKey] = off;
+                const g = buildVizGeometry();
+                const metric = geoMetricFromGeometry(g, metricKey);
+                if (!Number.isFinite(metric)) continue;
+                const err = Math.abs(metric - targetDeg);
+                if (err < bestErr) {
+                    bestErr = err;
+                    bestOffset = off;
+                }
+            }
+            s[offsetKey] = original;
+
+            if (!Number.isFinite(bestErr)) {
+                return { ok: false, error: "Unable to solve offset for this target." };
+            }
+            return { ok: true, offset: bestOffset, errorDeg: bestErr };
+        }
+
+        function applyGeoTarget(fieldId, offsetKey, offsetInputId, metricKey) {
+            if (!dynVars) return;
+            const field = document.getElementById(fieldId);
+            const raw = toFloat(field.value, null);
+            if (raw === null || !Number.isFinite(raw)) {
+                setDlStatus("Relative angle target must be numeric.", "danger");
+                renderViz();
+                return;
+            }
+            const target = clampGeoTarget(raw);
+            const solved = solveOffsetForGeoTarget(offsetKey, metricKey, target);
+            if (!solved.ok) {
+                setDlStatus(solved.error || "Failed to solve target.", "danger");
+                renderViz();
+                return;
+            }
+
+            const side = activeSide();
+            dynVars[side] = dynVars[side] || {};
+            dynVars[side][offsetKey] = solved.offset;
+            const offEl = document.getElementById(offsetInputId);
+            if (offEl) offEl.value = String(solved.offset);
+
+            setDlStatus(`Set ${offsetKey} to ${solved.offset.toFixed(2)} (target error ${solved.errorDeg.toFixed(2)} deg)`, "ok");
+            scheduleDynVarsSave();
+            renderViz();
         }
 
         function renderViz() {
@@ -2447,6 +2522,24 @@
             renderViz();
         });
 
+        [
+            { id: "geoHipFront", off: "front_hip_offset_deg", offId: "dl_off_fh", key: "hip_front" },
+            { id: "geoHipRear", off: "rear_hip_offset_deg", offId: "dl_off_rh", key: "hip_rear" },
+            { id: "geoRelFront", off: "front_knee_offset_deg", offId: "dl_off_fk", key: "knee_front" },
+            { id: "geoRelRear", off: "rear_knee_offset_deg", offId: "dl_off_rk", key: "knee_rear" },
+        ].forEach((spec) => {
+            const el = document.getElementById(spec.id);
+            el.addEventListener("keydown", (ev) => {
+                if (ev.key !== "Enter") return;
+                ev.preventDefault();
+                applyGeoTarget(spec.id, spec.off, spec.offId, spec.key);
+                el.blur();
+            });
+            el.addEventListener("change", () => {
+                applyGeoTarget(spec.id, spec.off, spec.offId, spec.key);
+            });
+        });
+
         // Canvas resize redraw
         window.addEventListener("resize", () => renderViz());
 
@@ -2466,6 +2559,7 @@
             "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr", "dl_kab_f", "dl_kab_r",
             "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
             "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
+            "geoHipFront", "geoHipRear", "geoRelFront", "geoRelRear",
             "cal_cmd_input", "cal_actual_input",
         ]);
         syncHotkeyInputs();
