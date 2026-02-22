@@ -2009,7 +2009,7 @@
             const candidates = [];
             const lo = original - 180.0;
             const hi = original + 180.0;
-            const step = 0.5;
+            const step = 0.1;
 
             for (let off = lo; off <= hi + 1e-9; off += step) {
                 s[offsetKey] = off;
@@ -2035,7 +2035,7 @@
             }
 
             // Prefer thigh below the hip line for hip-relative solves.
-            const nearTol = 0.25;
+            const nearTol = 0.05;
             const nearBest = candidates.filter(c => c.err <= bestErr + nearTol);
             if (!nearBest.length) {
                 return { ok: false, error: "Unable to choose a valid offset solution." };
@@ -2079,7 +2079,7 @@
             dynVars[side] = dynVars[side] || {};
             dynVars[side][offsetKey] = solved.offset;
             const offEl = document.getElementById(offsetInputId);
-            if (offEl) offEl.value = String(solved.offset);
+            if (offEl) offEl.value = solved.offset.toFixed(1);
 
             setDlStatus(`Set ${offsetKey} to ${solved.offset.toFixed(2)} (target error ${solved.errorDeg.toFixed(2)} deg)`, "ok");
             scheduleDynVarsSave();
