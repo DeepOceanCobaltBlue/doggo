@@ -20,7 +20,7 @@
     "front_right_hip": {
       "channel": 8,
       "limits": {
-        "deg_min": 100,
+        "deg_min": 105,
         "deg_max": 270,
         "invert": false
       }
