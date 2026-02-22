@@ -79,6 +79,13 @@
             flex-wrap: wrap;
         }
         .row.tight { gap: 8px; }
+        .frameRow {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .frameRow input[type="radio"] {
+            transform: scale(1.2);
+        }
 
         .title { font-size: 18px; font-weight: 900; margin: 0; }
         .muted { color: var(--muted); font-size: 13px; }
@@ -119,11 +126,12 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            align-items: center;
         }
 
         .canvasWrap {
-            flex: 1;
-            min-height: 0;
+            width: 80%;
+            height: 80%;
             border: 1px solid var(--border);
             border-radius: 14px;
             background: rgba(15, 18, 32, .55);
@@ -158,6 +166,7 @@
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
+            width: 80%;
             padding: 8px 10px;
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, .14);
@@ -180,18 +189,6 @@
             color: var(--muted);
             font-weight: 600;
             letter-spacing: normal;
-        }
-        .frameReadout {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, .18);
-            background: rgba(77, 163, 255, .12);
-            color: var(--text);
-            font-size: 12px;
-            font-weight: 700;
         }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
@@ -222,6 +219,8 @@
             }
 
             .bottom { grid-column: 1; }
+            .canvasWrap { width: 100%; height: 100%; }
+            .poseBar { width: 100%; }
         }
     </style>
 </head>
@@ -243,19 +242,6 @@
                     <button class="primary" id="btnLoadConfig">Load Config</button>
                     <button class="primary" id="btnLoadProgram">Load Program</button>
                     <button class="primary" id="btnCompile">Compile</button>
-                </div>
-                <div class="row">
-                    <div class="frameReadout">Selected Frame: <span id="selectedFrameTxt">LEFT</span></div>
-                </div>
-                <div class="row">
-                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                        <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
-                        Left Frame
-                    </label>
-                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                        <input type="radio" name="frameSide" id="frameRight" value="right" />
-                        Right Frame
-                    </label>
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
                         <input id="inpSparse" type="checkbox" checked />
                         <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
@@ -271,6 +257,16 @@
                         />
                     </div>
                     <div class="status" id="statusText">status: idle</div>
+                </div>
+                <div class="row frameRow">
+                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                        <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
+                        Left Frame
+                    </label>
+                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                        <input type="radio" name="frameSide" id="frameRight" value="right" />
+                        Right Frame
+                    </label>
                 </div>
             </div>
 
@@ -295,10 +291,10 @@
 
         <footer class="bottom">
             <div class="row tight" style="padding:8px 10px; border:1px solid var(--border); border-radius:12px; background:rgba(15,18,32,.5);">
-                <button id="btnFramePrev">Prev Frame</button>
                 <button id="btnFrameMinus10">-10 Frames</button>
-                <button id="btnFramePlus10">+10 Frames</button>
+                <button id="btnFramePrev">Prev Frame</button>
                 <button id="btnFrameNext">Next Frame</button>
+                <button id="btnFramePlus10">+10 Frames</button>
                 <button id="btnFramePlay">Play</button>
                 <button id="btnFramePause">Pause</button>
                 <label class="muted" for="inpFrameNumber">Frame (tick)</label>
@@ -375,7 +371,6 @@
             const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
             document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
-            document.getElementById("selectedFrameTxt").textContent = selectedFrameSide.toUpperCase();
         }
 
         async function api(url, method = "GET", body = null) {
