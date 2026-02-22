@@ -2005,8 +2005,8 @@
             if (!Number.isFinite(original)) return { ok: false, error: "Current offset is invalid." };
 
             // Brute-force local search around current offset to avoid branch jumps.
-            let bestOffset = original;
             let bestErr = Infinity;
+            const candidates = [];
             const lo = original - 180.0;
             const hi = original + 180.0;
             const step = 0.5;
@@ -2017,17 +2017,30 @@
                 const metric = geoMetricFromGeometry(g, metricKey);
                 if (!Number.isFinite(metric)) continue;
                 const err = Math.abs(metric - targetDeg);
-                if (err < bestErr) {
-                    bestErr = err;
-                    bestOffset = off;
-                }
+                candidates.push({ off, err });
+                if (err < bestErr) bestErr = err;
             }
             s[offsetKey] = original;
 
             if (!Number.isFinite(bestErr)) {
                 return { ok: false, error: "Unable to solve offset for this target." };
             }
-            return { ok: true, offset: bestOffset, errorDeg: bestErr };
+
+            // Prefer the alternate branch: among near-best solutions, pick the one farthest
+            // from current offset. This intentionally flips branch selection behavior.
+            const nearTol = 0.25;
+            const nearBest = candidates.filter(c => c.err <= bestErr + nearTol);
+            if (!nearBest.length) {
+                return { ok: false, error: "Unable to choose a valid offset solution." };
+            }
+            nearBest.sort((a, b) => {
+                const da = Math.abs(a.off - original);
+                const db = Math.abs(b.off - original);
+                if (db !== da) return db - da;
+                return a.off - b.off;
+            });
+            const picked = nearBest[0];
+            return { ok: true, offset: picked.off, errorDeg: picked.err };
         }
 
         function applyGeoTarget(fieldId, offsetKey, offsetInputId, metricKey) {
