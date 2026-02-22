@@ -604,46 +604,15 @@ class HubApiContracts(unittest.TestCase):
 
         cls.hub_app = importlib.import_module("hub_app")
 
-    def test_load_program_requires_program_field(self) -> None:
+    def test_hub_program_modification_endpoints_removed(self) -> None:
         client = self.hub_app.app.test_client()
-        resp = client.post("/api/load_program", json={"num_frames": 200})
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(client.post("/api/load_program", json={"program": {}}).status_code, 404)
+        self.assertEqual(client.post("/api/load_program_json", json={"program": {}}).status_code, 404)
+        self.assertEqual(client.post("/api/compile_program", json={}).status_code, 404)
+        self.assertEqual(client.get("/api/program_preview?count=5").status_code, 404)
 
-    def test_load_program_json_and_compile_preview_contract(self) -> None:
+    def test_hub_runtime_telemetry_contract(self) -> None:
         client = self.hub_app.app.test_client()
-
-        cfg = client.post("/api/load_config", json={})
-        self.assertEqual(cfg.status_code, 200)
-
-        payload = {
-            "program": {
-                "program_id": "hub_test",
-                "tick_ms": 20,
-                "steps": [
-                    {
-                        "step_id": "lift",
-                        "commands": [
-                            {"location": "rear_left_hip", "target_angle": 150, "duration_ms": 40},
-                            {"location": "rear_right_hip", "target_angle": 150, "duration_ms": 40},
-                        ],
-                    }
-                ],
-            }
-        }
-        load = client.post("/api/load_program_json", json=payload)
-        self.assertEqual(load.status_code, 200)
-        self.assertTrue(load.get_json()["ok"])
-
-        comp = client.post("/api/compile_program", json={"sparse_targets": True})
-        self.assertEqual(comp.status_code, 200)
-        self.assertTrue(comp.get_json()["ok"])
-
-        prev = client.get("/api/program_preview?count=5")
-        self.assertEqual(prev.status_code, 200)
-        body = prev.get_json()
-        self.assertTrue(body["ok"])
-        self.assertIn("ticks", body)
-
         telem = client.get("/api/telemetry?tail=5")
         self.assertEqual(telem.status_code, 200)
         self.assertTrue(telem.get_json()["ok"])
@@ -676,6 +645,78 @@ class HubApiContracts(unittest.TestCase):
         resp = client.post("/api/settings", json={"heartbeat_timeout_ms": 0, "stop_on_clamp": False})
         self.assertEqual(resp.status_code, 200)
 
+
+@unittest.skipUnless(HAVE_FLASK, "Flask not installed in this environment")
+class ProgramApiContracts(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.program_app = importlib.import_module("program_app")
+
+    def test_program_flow_compile_preview_and_sim_seek(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        payload = {
+            "program": {
+                "program_id": "program_test",
+                "tick_ms": 20,
+                "steps": [
+                    {
+                        "step_id": "lift",
+                        "commands": [
+                            {"location": "rear_left_hip", "target_angle": 150, "duration_ms": 40},
+                            {"location": "rear_right_hip", "target_angle": 150, "duration_ms": 40},
+                        ],
+                    }
+                ],
+            }
+        }
+        load = client.post("/api/load_program_json", json=payload)
+        self.assertEqual(load.status_code, 200)
+        self.assertTrue(load.get_json()["ok"])
+
+        comp = client.post("/api/compile_program", json={"sparse_targets": True})
+        self.assertEqual(comp.status_code, 200)
+        self.assertTrue(comp.get_json()["ok"])
+
+        prev = client.get("/api/program_preview?count=5")
+        self.assertEqual(prev.status_code, 200)
+        prev_body = prev.get_json()
+        self.assertTrue(prev_body["ok"])
+        self.assertIn("ticks", prev_body)
+
+        sim = client.get("/api/sim_state")
+        self.assertEqual(sim.status_code, 200)
+        sim_body = sim.get_json()
+        self.assertTrue(sim_body["ok"])
+        self.assertIn("sim_angles", sim_body)
+        self.assertIn("collision_status", sim_body)
+
+        seek = client.post("/api/sim_seek", json={"tick": 1})
+        self.assertEqual(seek.status_code, 200)
+        self.assertTrue(seek.get_json()["ok"])
+
+    def test_program_api_validation_and_error_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        self.assertEqual(client.get("/api/sim_state").status_code, 400)
+        self.assertEqual(client.post("/api/sim_seek", json={"tick": 0}).status_code, 400)
+        self.assertEqual(client.post("/api/compile_program", json={}).status_code, 400)
+        self.assertEqual(client.get("/api/program_preview?count=5").status_code, 400)
+
+        bad_load = client.post("/api/load_program_json", json={"program": {"program_id": "x", "tick_ms": 20, "steps": []}})
+        self.assertEqual(bad_load.status_code, 400)
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        self.assertEqual(client.post("/api/load_program_json", json={"program": 123}).status_code, 400)
+        self.assertEqual(client.post("/api/load_program", json={"program": 123}).status_code, 400)
+        self.assertEqual(client.post("/api/sim_seek", json={"tick": "abc"}).status_code, 400)
+        self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": "abc"}).status_code, 400)
+        self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": 0}).status_code, 400)
 
 if __name__ == "__main__":
     unittest.main()

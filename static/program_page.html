@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Doggo Programming</title>
+    <style>
+        :root {
+            --bg: #0f1220;
+            --panel: #181c2f;
+            --card: #0f1220;
+            --border: rgba(255, 255, 255, .14);
+            --text: #e6e8f0;
+            --muted: #9aa0b3;
+            --accent: #4da3ff;
+            --ok: #3ddc97;
+            --danger: #ff5d5d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .wrap {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            grid-template-rows: 1fr 220px;
+            gap: 12px;
+            padding: 12px;
+            min-height: 100vh;
+        }
+
+        .main {
+            background: var(--panel);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px dashed var(--border);
+            padding: 16px;
+            color: var(--muted);
+        }
+
+        .bottom {
+            grid-column: 1 / span 2;
+            background: var(--panel);
+            border-radius: 16px;
+            border: 1px dashed var(--border);
+            padding: 16px;
+            color: var(--muted);
+        }
+
+        .mainHeader {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, .10);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .title { font-size: 18px; font-weight: 900; margin: 0; }
+        .muted { color: var(--muted); font-size: 13px; }
+
+        button {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, .18);
+            border-radius: 12px;
+            padding: 9px 12px;
+            cursor: pointer;
+        }
+
+        button.primary { border-color: var(--accent); color: var(--accent); }
+        button:disabled { opacity: .35; cursor: not-allowed; }
+
+        input[type="number"], textarea {
+            width: 100%;
+            padding: 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, .18);
+            background: #0f1220;
+            color: var(--text);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.3;
+        }
+
+        .mainBody {
+            flex: 1;
+            min-height: 0;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .canvasWrap {
+            flex: 1;
+            min-height: 0;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: rgba(15, 18, 32, .55);
+            overflow: hidden;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .canvasOverlay {
+            position: absolute;
+            left: 10px;
+            top: 10px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .72);
+            border: 1px solid rgba(255, 255, 255, .12);
+            color: var(--muted);
+            font-size: 12px;
+            max-width: calc(100% - 20px);
+        }
+
+        .status { font-size: 12px; color: var(--muted); }
+        .ok { color: var(--ok); }
+        .danger { color: var(--danger); }
+        .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
+        .badge {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, .14);
+            background: #0f1220;
+            font-size: 13px;
+        }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+        .dot.ok { background: var(--ok); }
+        .dot.bad { background: var(--danger); }
+
+        details {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--card);
+            padding: 8px 10px;
+        }
+
+        @media (max-width: 980px) {
+            .wrap {
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(480px, 1fr) auto auto;
+            }
+
+            .bottom { grid-column: 1; }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <section class="main">
+            <div class="mainHeader">
+                <div>
+                    <h1 class="title">Doggo Programming</h1>
+                    <div class="muted">Program compiler + simulator shell. Right and bottom bars are reserved.</div>
+                </div>
+                <div class="pillbar">
+                    <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
+                    <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
+                    <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
+                </div>
+                <div class="row">
+                    <button class="primary" id="btnLoadConfig">Load Config</button>
+                    <button class="primary" id="btnLoadProgram">Load Program JSON</button>
+                    <button class="primary" id="btnCompile">Compile</button>
+                    <button id="btnPrevTick">Prev Tick</button>
+                    <button id="btnPlay">Play</button>
+                    <button id="btnNextTick">Next Tick</button>
+                </div>
+                <div class="row">
+                    <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                        <input id="inpSparse" type="checkbox" checked /> sparse targets
+                    </label>
+                    <div style="width:180px;">
+                        <input id="inpMaxDelta" type="number" min="1" step="1" placeholder="max_delta_per_tick" />
+                    </div>
+                    <div class="status" id="statusText">status: idle</div>
+                </div>
+                <details>
+                    <summary>Program JSON</summary>
+                    <div style="margin-top:10px;">
+                        <textarea id="inpProgram"></textarea>
+                    </div>
+                </details>
+            </div>
+
+            <div class="mainBody">
+                <div class="muted" id="poseInfo">-</div>
+                <div class="canvasWrap">
+                    <canvas id="viz"></canvas>
+                    <div class="canvasOverlay" id="vizOverlay">Load config to begin simulation.</div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="sidebar">
+            <div style="font-weight:900; margin-bottom:8px;">Right Control Bar</div>
+            <div>Reserved for programming controls/settings.</div>
+            <div style="margin-top:12px; font-size:12px;">
+                <div>- Placeholder: gait controls</div>
+                <div>- Placeholder: interpolation/smoothing knobs</div>
+                <div>- Placeholder: playback controls</div>
+            </div>
+        </aside>
+
+        <footer class="bottom">
+            <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
+            <div>Reserved for timeline UI.</div>
+            <div style="margin-top:10px; font-size:12px;">
+                <span id="timelineSummary">timeline: no compile yet</span>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        let locations = [];
+        let draft = null;
+        let dynVars = null;
+        let hwAngles = {};
+        let simAngles = {};
+        let collisionStatus = null;
+        let previewTicks = [];
+        let previewTickMs = 20;
+        let simTickIdx = 0;
+        let playTimer = null;
+        let appStatus = {
+            config_loaded: false,
+            program_loaded: false,
+            compiled_loaded: false,
+            compiled_summary: null,
+            sim_tick_idx: 0,
+        };
+
+        function setStatus(text, cls = "") {
+            const el = document.getElementById("statusText");
+            el.className = `status ${cls}`.trim();
+            el.textContent = text;
+        }
+
+        function setBadge(dotId, txtId, ok, text) {
+            const dot = document.getElementById(dotId);
+            const txt = document.getElementById(txtId);
+            dot.className = `dot ${ok ? "ok" : "bad"}`;
+            txt.textContent = text;
+        }
+
+        function applyUiState() {
+            const hasConfig = !!appStatus.config_loaded;
+            const hasProgram = !!appStatus.program_loaded;
+            const hasCompiled = !!appStatus.compiled_loaded;
+
+            setBadge("dotConfig", "txtConfig", hasConfig, `config: ${hasConfig ? "loaded" : "not loaded"}`);
+            setBadge("dotProgram", "txtProgram", hasProgram, `program: ${hasProgram ? "loaded" : "not loaded"}`);
+            setBadge("dotCompiled", "txtCompiled", hasCompiled, `compiled: ${hasCompiled ? "loaded" : "not loaded"}`);
+
+            document.getElementById("btnLoadProgram").disabled = !hasConfig;
+            document.getElementById("btnCompile").disabled = !(hasConfig && hasProgram);
+            document.getElementById("btnPrevTick").disabled = !hasCompiled;
+            document.getElementById("btnPlay").disabled = !hasCompiled;
+            document.getElementById("btnNextTick").disabled = !hasCompiled;
+
+            const summary = appStatus.compiled_summary;
+            const timelineTxt = summary
+                ? `timeline: ${summary.num_ticks} ticks @ ${summary.tick_ms}ms`
+                : "timeline: no compile yet";
+            document.getElementById("timelineSummary").textContent = timelineTxt;
+        }
+
+        async function api(url, method = "GET", body = null) {
+            const opts = { method, headers: {} };
+            if (body !== null) {
+                opts.headers["Content-Type"] = "application/json";
+                opts.body = JSON.stringify(body);
+            }
+            const res = await fetch(url, opts);
+            const data = await res.json();
+            return { ok: res.ok, status: res.status, data };
+        }
+
+        async function refreshStatus() {
+            const resp = await api("/api/status");
+            if (!resp.ok) return false;
+            appStatus = { ...appStatus, ...(resp.data || {}) };
+            applyUiState();
+            return true;
+        }
+
+        function clampInt(v, lo, hi) {
+            return Math.max(lo, Math.min(hi, v));
+        }
+
+        function toInt(v, fallback = null) {
+            const n = Number.parseInt(String(v).trim(), 10);
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function toFloat(v, fallback = null) {
+            const n = Number.parseFloat(String(v).trim());
+            return Number.isFinite(n) ? n : fallback;
+        }
+
+        function normalizeDeg(deg) {
+            let x = deg % 360;
+            if (x < 0) x += 360;
+            return x;
+        }
+
+        function fitLinearFromPairs(pairs) {
+            if (!Array.isArray(pairs) || pairs.length < 2) return null;
+            let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+            for (const p of pairs) {
+                const x = Number(p.commanded_deg);
+                const y = Number(p.actual_deg);
+                if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                n += 1;
+                sx += x;
+                sy += y;
+                sxx += x * x;
+                sxy += x * y;
+            }
+            if (n < 2) return null;
+            const den = n * sxx - sx * sx;
+            if (Math.abs(den) < 1e-9) return null;
+            const m = (n * sxy - sx * sy) / den;
+            const b = (sy - m * sx) / n;
+            return { m, b };
+        }
+
+        function currentStateAngles() {
+            return simAngles;
+        }
+
+        function activeSide() {
+            if (!dynVars) return "left";
+            const a = String(dynVars.active_side || "left").toLowerCase();
+            return a === "right" ? "right" : "left";
+        }
+
+        function resizeCanvasToDisplaySize(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            const w = Math.max(1, Math.floor(rect.width * dpr));
+            const h = Math.max(1, Math.floor(rect.height * dpr));
+            if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                return true;
+            }
+            return false;
+        }
+
+        function degToRad(deg) { return deg * Math.PI / 180.0; }
+        function unitFromAngleDeg(deg) {
+            const r = degToRad(deg);
+            return { x: -Math.cos(r), y: -Math.sin(r) };
+        }
+
+        function unitFromKneeAngleDeg(deg) {
+            const r = degToRad(deg);
+            return { x: -Math.cos(r), y: Math.sin(r) };
+        }
+
+        function add(a, b) { return { x: a.x + b.x, y: a.y + b.y }; }
+        function mul(a, s) { return { x: a.x * s, y: a.y * s }; }
+        function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+        function rotateCcwDeg(v, deg) {
+            const r = degToRad(deg);
+            const c = Math.cos(r);
+            const s = Math.sin(r);
+            return { x: v.x * c - v.y * s, y: v.x * s + v.y * c };
+        }
+
+        function angleFromHipUnit(u) {
+            return normalizeDeg(Math.atan2(-u.y, -u.x) * 180.0 / Math.PI);
+        }
+
+        function angleFromKneeLocalUnit(v) {
+            return normalizeDeg(Math.atan2(v.y, -v.x) * 180.0 / Math.PI);
+        }
+
+        function segmentRelativeDeg(a, b, c) {
+            const ux = a.x - b.x, uy = a.y - b.y;
+            const vx = c.x - b.x, vy = c.y - b.y;
+            const un = Math.hypot(ux, uy);
+            const vn = Math.hypot(vx, vy);
+            if (un < 1e-9 || vn < 1e-9) return 0;
+            const dot = (ux * vx + uy * vy) / (un * vn);
+            return Math.acos(clamp(dot, -1, 1)) * 180.0 / Math.PI;
+        }
+
+        function calibratedMeasurementForViz(locKey, physicalAngle) {
+            const profiles = dynVars?.calibration_profiles;
+            const jmap = dynVars?.joint_calibration_map;
+            const flipMap = dynVars?.sim_rotation_flip_map;
+            const flippedPhysical = (flipMap && flipMap[locKey]) ? (270 - physicalAngle) : physicalAngle;
+            if (!profiles || typeof profiles !== "object") return { mode: "servo_physical_deg", value: flippedPhysical };
+            let profName = String((jmap && jmap[locKey]) || "identity");
+            if (!profiles[profName]) profName = "identity";
+            const prof = profiles[profName];
+            if (!prof || typeof prof !== "object") return { mode: "servo_physical_deg", value: physicalAngle };
+            const mode = ["servo_physical_deg", "hip_line_relative_deg", "knee_relative_deg"].includes(String(prof.measurement_mode))
+                ? String(prof.measurement_mode)
+                : "servo_physical_deg";
+            const fit = fitLinearFromPairs(Array.isArray(prof.pairs) ? prof.pairs : []);
+            if (!fit) return { mode, value: flippedPhysical };
+            return { mode, value: Math.max(0, Math.min(270, fit.m * flippedPhysical + fit.b)) };
+        }
+
+        function getSideJointInputs(side, state) {
+            const s = state || {};
+            const locLimits = (locKey) => (draft?.locations?.[locKey]?.limits) || {};
+
+            function physicalForViz(locKey, logicalAngle) {
+                const lim = locLimits(locKey);
+                const raw = clampInt(toInt(logicalAngle, 135), 0, 270);
+                let lo = clampInt(toInt(lim.deg_min, 0), 0, 270);
+                let hi = clampInt(toInt(lim.deg_max, 270), 0, 270);
+                if (hi < lo) { const t = lo; lo = hi; hi = t; }
+                const logical = clampInt(raw, lo, hi);
+                return (lim.invert === true) ? (270 - logical) : logical;
+            }
+
+            function jointIn(locKey, logicalAngle) {
+                const physical = physicalForViz(locKey, logicalAngle);
+                const cal = calibratedMeasurementForViz(locKey, physical);
+                return { physical, mode: cal.mode, measured: cal.value };
+            }
+
+            if (side === "right") {
+                return {
+                    front_hip: jointIn("front_right_hip", s.front_right_hip),
+                    front_knee: jointIn("front_right_knee", s.front_right_knee),
+                    rear_hip: jointIn("rear_right_hip", s.rear_right_hip),
+                    rear_knee: jointIn("rear_right_knee", s.rear_right_knee),
+                };
+            }
+
+            return {
+                front_hip: jointIn("front_left_hip", s.front_left_hip),
+                front_knee: jointIn("front_left_knee", s.front_left_knee),
+                rear_hip: jointIn("rear_left_hip", s.rear_left_hip),
+                rear_knee: jointIn("rear_left_knee", s.rear_left_knee),
+            };
+        }
+
+        function buildVizGeometry() {
+            if (!dynVars || !draft) return null;
+
+            const side = activeSide();
+            const s = dynVars[side] || {};
+            const st = currentStateAngles();
+            const j = getSideJointInputs(side, st);
+
+            const hip_dx = Number(s.hip_dx_mm ?? 80);
+            const hip_y = Number(s.hip_y_mm ?? 60);
+
+            const Ltf = Number(s.thigh_len_front_mm ?? 70);
+            const Lsf = Number(s.shin_len_front_mm ?? 90);
+            const Ltr = Number(s.thigh_len_rear_mm ?? 70);
+            const Lsr = Number(s.shin_len_rear_mm ?? 90);
+            const kabF = Math.max(0, Math.min(Ltf, Number(s.front_knee_attach_backoff_mm ?? 0)));
+            const kabR = Math.max(0, Math.min(Ltr, Number(s.rear_knee_attach_backoff_mm ?? 0)));
+
+            const r_ft = Number(s.front_thigh_radius_mm ?? 6);
+            const r_fs = Number(s.front_shin_radius_mm ?? 6);
+            const r_rt = Number(s.rear_thigh_radius_mm ?? 6);
+            const r_rs = Number(s.rear_shin_radius_mm ?? 6);
+
+            const off_fh = Number(s.front_hip_offset_deg ?? 0);
+            const off_fk = Number(s.front_knee_offset_deg ?? 0);
+            const off_rh = Number(s.rear_hip_offset_deg ?? 0);
+            const off_rk = Number(s.rear_knee_offset_deg ?? 0);
+
+            const Hf = { x: 0, y: hip_y };
+            const Hr = { x: (side === "left" ? hip_dx : -hip_dx), y: hip_y };
+            const hipLine = (side === "left") ? { x: 1, y: 0 } : { x: -1, y: 0 };
+
+            let out_fh = Number(j.front_hip.measured);
+            if (j.front_hip.mode === "hip_line_relative_deg") {
+                const rel = normalizeDeg(Number(j.front_hip.measured) + off_fh);
+                out_fh = normalizeDeg(angleFromHipUnit(rotateCcwDeg(hipLine, rel)) - off_fh);
+            }
+
+            let out_rh = Number(j.rear_hip.measured);
+            if (j.rear_hip.mode === "hip_line_relative_deg") {
+                const rel = normalizeDeg(Number(j.rear_hip.measured) + off_rh);
+                out_rh = normalizeDeg(angleFromHipUnit(rotateCcwDeg(hipLine, rel)) - off_rh);
+            }
+
+            const a_fh = normalizeDeg(out_fh + off_fh);
+            const a_rh = normalizeDeg(out_rh + off_rh);
+            const uf = unitFromAngleDeg(a_fh);
+            const ur = unitFromAngleDeg(a_rh);
+
+            let out_fk = Number(j.front_knee.measured);
+            if (j.front_knee.mode === "knee_relative_deg") {
+                const rel = normalizeDeg(Number(j.front_knee.measured) + off_fk);
+                const ba = { x: -uf.x, y: -uf.y };
+                const vWorld = rotateCcwDeg(ba, rel);
+                const vLocal = rotateCcwDeg(vWorld, -a_fh);
+                const absFk = angleFromKneeLocalUnit(vLocal);
+                out_fk = normalizeDeg(absFk - off_fk);
+            }
+
+            let out_rk = Number(j.rear_knee.measured);
+            if (j.rear_knee.mode === "knee_relative_deg") {
+                const rel = normalizeDeg(Number(j.rear_knee.measured) + off_rk);
+                const ba = { x: -ur.x, y: -ur.y };
+                const vWorld = rotateCcwDeg(ba, rel);
+                const vLocal = rotateCcwDeg(vWorld, -a_rh);
+                const absRk = angleFromKneeLocalUnit(vLocal);
+                out_rk = normalizeDeg(absRk - off_rk);
+            }
+
+            const a_fk = normalizeDeg(out_fk + off_fk);
+            const a_rk = normalizeDeg(out_rk + off_rk);
+            const KfTip = add(Hf, mul(uf, Ltf));
+            const Kf = add(Hf, mul(uf, Ltf - kabF));
+            const vf = rotateCcwDeg(unitFromKneeAngleDeg(a_fk), a_fh);
+            const Ff = add(Kf, mul(vf, Lsf));
+
+            const KrTip = add(Hr, mul(ur, Ltr));
+            const Kr = add(Hr, mul(ur, Ltr - kabR));
+            const vr = rotateCcwDeg(unitFromKneeAngleDeg(a_rk), a_rh);
+            const Fr = add(Kr, mul(vr, Lsr));
+
+            const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
+            const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
+
+            return {
+                side,
+                anchors: { Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr },
+                angles: {
+                    a_fh: Number(j.front_hip.physical),
+                    a_fk: Number(j.front_knee.physical),
+                    a_rh: Number(j.rear_hip.physical),
+                    a_rk: Number(j.rear_knee.physical),
+                },
+                relative: { front_deg: frontRelDeg, rear_deg: rearRelDeg },
+                lengths: { hip_dx, hip_y, kabF, kabR },
+                radii: { r_ft, r_fs, r_rt, r_rs },
+            };
+        }
+
+        function renderViz() {
+            const canvas = document.getElementById("viz");
+            const ctx = canvas.getContext("2d");
+            resizeCanvasToDisplaySize(canvas);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const g = buildVizGeometry();
+            const overlay = document.getElementById("vizOverlay");
+            const poseInfo = document.getElementById("poseInfo");
+
+            if (!g) {
+                overlay.textContent = "Waiting for simulation state...";
+                poseInfo.textContent = "-";
+                return;
+            }
+
+            const { Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr } = g.anchors;
+            const pts = [Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr];
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (const p of pts) {
+                minX = Math.min(minX, p.x);
+                maxX = Math.max(maxX, p.x);
+                minY = Math.min(minY, p.y);
+                maxY = Math.max(maxY, p.y);
+            }
+
+            const pad = 50;
+            minX -= pad; maxX += pad;
+            minY = Math.min(minY - pad, -20);
+            maxY += pad;
+
+            const W = canvas.width, H = canvas.height;
+            const s = Math.min(W / (maxX - minX), H / (maxY - minY));
+            const ox = (W - s * (maxX - minX)) / 2 - s * minX;
+            const oy = (H - s * (maxY - minY)) / 2 + s * maxY;
+            const toCanvas = (p) => ({ x: ox + s * p.x, y: oy - s * p.y });
+
+            function drawCapsule(a, b, r_mm, alpha) {
+                const A = toCanvas(a);
+                const B = toCanvas(b);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+                ctx.lineWidth = Math.max(1, 2 * r_mm * s);
+                ctx.beginPath();
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(B.x, B.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawLink(a, b, w, alpha) {
+                const A = toCanvas(a);
+                const B = toCanvas(b);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.strokeStyle = "#ffffff";
+                ctx.lineWidth = w;
+                ctx.beginPath();
+                ctx.moveTo(A.x, A.y);
+                ctx.lineTo(B.x, B.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            function drawJoint(p, alpha) {
+                const P = toCanvas(p);
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(P.x, P.y, Math.max(3, 5 * (window.devicePixelRatio || 1)), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            drawCapsule(Hf, KfTip, g.radii.r_ft, 0.18);
+            drawCapsule(Kf, Ff, g.radii.r_fs, 0.18);
+            drawCapsule(Hr, KrTip, g.radii.r_rt, 0.18);
+            drawCapsule(Kr, Fr, g.radii.r_rs, 0.18);
+            drawLink(Hf, KfTip, 3, 0.55);
+            drawLink(Kf, Ff, 3, 0.55);
+            drawLink(Hr, KrTip, 3, 0.55);
+            drawLink(Kr, Fr, 3, 0.55);
+            drawJoint(Hf, 0.9);
+            drawJoint(Kf, 0.8);
+            drawJoint(Hr, 0.9);
+            drawJoint(Kr, 0.8);
+
+            poseInfo.textContent =
+                `${g.side.toUpperCase()} | sim tick=${simTickIdx} | ` +
+                `FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} ` +
+                `RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)}`;
+
+            const sideStatus = collisionStatus?.test?.[g.side] || null;
+            let collisionTxt = "Collision: unknown";
+            if (sideStatus) {
+                const details = sideStatus.details || {};
+                const pair = details.pair || "?";
+                const d = Number(details.min_distance_mm);
+                const t = Number(details.threshold_mm);
+                const dTxt = Number.isFinite(d) ? d.toFixed(2) : "?";
+                const tTxt = Number.isFinite(t) ? t.toFixed(2) : "?";
+                collisionTxt = sideStatus.collides
+                    ? `Collision: YES (${pair}, d=${dTxt} <= ${tTxt})`
+                    : `Collision: no (${pair}, d=${dTxt} > ${tTxt})`;
+            }
+
+            overlay.textContent =
+                `Hip dx=${g.lengths.hip_dx.toFixed(1)}mm, hip y=${g.lengths.hip_y.toFixed(1)}mm • ` +
+                `Knee backoff: F=${g.lengths.kabF.toFixed(1)} R=${g.lengths.kabR.toFixed(1)}mm • ${collisionTxt}`;
+        }
+
+        async function refreshSimState() {
+            const resp = await api("/api/sim_state");
+            if (!resp.ok) {
+                setStatus(`sim state unavailable (${resp.status})`, "danger");
+                return;
+            }
+            locations = resp.data.locations || [];
+            draft = resp.data.draft || null;
+            dynVars = resp.data.dynamic_limits || null;
+            hwAngles = resp.data.hw_angles || {};
+            simAngles = resp.data.sim_angles || {};
+            simTickIdx = Number(resp.data.sim_tick_idx || 0);
+            collisionStatus = resp.data.collision_status || null;
+            appStatus.sim_tick_idx = simTickIdx;
+            renderViz();
+        }
+
+        async function seekTick(idx) {
+            if (!appStatus.compiled_loaded) {
+                setStatus("compile a program before seeking", "danger");
+                return;
+            }
+            const resp = await api("/api/sim_seek", "POST", { tick: idx });
+            if (!resp.ok) {
+                setStatus(resp.data?.error || "seek failed", "danger");
+                return;
+            }
+            const requested = Number(idx);
+            simTickIdx = Number(resp.data.sim_tick_idx || 0);
+            appStatus.sim_tick_idx = simTickIdx;
+            simAngles = resp.data.sim_angles || simAngles;
+            collisionStatus = { ...(collisionStatus || {}), ...(resp.data.collision_status || {}) };
+            if (Number.isFinite(requested) && requested !== simTickIdx) {
+                setStatus(`seek clamped to tick ${simTickIdx}`, "muted");
+            }
+            renderViz();
+        }
+
+        function defaultProgram() {
+            return {
+                program_id: "program_app_default",
+                tick_ms: 20,
+                steps: [
+                    {
+                        step_id: "front_hips",
+                        commands: [
+                            { location: "front_left_hip", target_angle: 160, duration_ms: 220, easing: "ease_in_out" },
+                            { location: "front_right_hip", target_angle: 160, duration_ms: 220, easing: "ease_in_out" }
+                        ]
+                    },
+                    {
+                        step_id: "front_knees",
+                        commands: [
+                            { location: "front_left_knee", target_angle: 120, duration_ms: 220, easing: "ease_in_out" },
+                            { location: "front_right_knee", target_angle: 120, duration_ms: 220, easing: "ease_in_out" }
+                        ]
+                    }
+                ]
+            };
+        }
+
+        async function loadProgramFromInput() {
+            if (!appStatus.config_loaded) {
+                setStatus("load config first", "danger");
+                return;
+            }
+            const txt = String(document.getElementById("inpProgram").value || "").trim();
+            if (!txt) {
+                setStatus("program json is empty", "danger");
+                return;
+            }
+            let program;
+            try {
+                program = JSON.parse(txt);
+            } catch (e) {
+                setStatus(`invalid JSON: ${e}`, "danger");
+                return;
+            }
+            const resp = await api("/api/load_program_json", "POST", { program });
+            setStatus(resp.ok ? "program loaded" : (resp.data?.error || "load failed"), resp.ok ? "ok" : "danger");
+            await refreshStatus();
+        }
+
+        async function compileProgram() {
+            if (!appStatus.config_loaded) {
+                setStatus("load config first", "danger");
+                return;
+            }
+            if (!appStatus.program_loaded) {
+                setStatus("load program JSON first", "danger");
+                return;
+            }
+            const sparse_targets = !!document.getElementById("inpSparse").checked;
+            const maxDeltaRaw = String(document.getElementById("inpMaxDelta").value || "").trim();
+            const body = { sparse_targets };
+            if (maxDeltaRaw) body.max_delta_per_tick = Number(maxDeltaRaw);
+
+            const resp = await api("/api/compile_program", "POST", body);
+            if (!resp.ok) {
+                setStatus(resp.data?.error || "compile failed", "danger");
+                return;
+            }
+
+            const prev = await api("/api/program_preview?count=500");
+            previewTicks = prev.ok ? (prev.data.ticks || []) : [];
+            previewTickMs = prev.ok ? Number(prev.data?.summary?.tick_ms || 20) : 20;
+            appStatus.compiled_summary = prev.ok ? (prev.data?.summary || null) : null;
+            appStatus.compiled_loaded = !!previewTicks.length;
+            await seekTick(0);
+            setStatus(`compiled (${previewTicks.length} ticks)`, "ok");
+            await refreshStatus();
+        }
+
+        function stopPlayback() {
+            if (playTimer !== null) {
+                clearInterval(playTimer);
+                playTimer = null;
+                document.getElementById("btnPlay").textContent = "Play";
+            }
+        }
+
+        function startPlayback() {
+            if (!previewTicks.length) {
+                setStatus("compile a program first", "danger");
+                return;
+            }
+            if (playTimer !== null) return;
+
+            const tickMs = Math.max(1, Number(previewTickMs || 20));
+            document.getElementById("btnPlay").textContent = "Pause";
+            playTimer = setInterval(async () => {
+                if (!previewTicks.length) return;
+                const next = simTickIdx + 1;
+                if (next >= previewTicks.length) {
+                    stopPlayback();
+                    return;
+                }
+                await seekTick(next);
+            }, tickMs);
+        }
+
+        document.getElementById("btnLoadConfig").addEventListener("click", async () => {
+            const resp = await api("/api/load_config", "POST", {});
+            if (!resp.ok) {
+                setStatus(resp.data?.message || "load config failed", "danger");
+                return;
+            }
+            setStatus("config loaded", "ok");
+            await refreshStatus();
+            await refreshSimState();
+        });
+
+        document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
+        document.getElementById("btnCompile").addEventListener("click", compileProgram);
+
+        document.getElementById("btnPrevTick").addEventListener("click", async () => {
+            stopPlayback();
+            await seekTick(Math.max(0, simTickIdx - 1));
+        });
+
+        document.getElementById("btnNextTick").addEventListener("click", async () => {
+            stopPlayback();
+            await seekTick(simTickIdx + 1);
+        });
+
+        document.getElementById("btnPlay").addEventListener("click", () => {
+            if (playTimer !== null) stopPlayback();
+            else startPlayback();
+        });
+
+        window.addEventListener("resize", renderViz);
+
+        document.getElementById("inpProgram").value = JSON.stringify(defaultProgram(), null, 2);
+        applyUiState();
+        refreshStatus();
+        renderViz();
+    </script>
+</body>
+
+</html>

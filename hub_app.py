@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List
 
 from flask import Flask, jsonify, request, send_from_directory
 
+from app_shared.program_common import file_exists, read_json_file, summarize_timeline, validate_location_order
 from hardware.pca9685 import PCA9685
 from motion_core import (
     build_config_state_view,
@@ -17,8 +17,6 @@ from motion_core import (
     HardwareRuntimeLock,
     ProgramRuntimeEngine,
     SafetyPipeline,
-    compile_timeline,
-    normalize_and_validate_program_spec,
 )
 from sim_core import sim_store
 
@@ -44,38 +42,6 @@ STATIC_DIR = BASE_DIR / "static"
 HUB_PAGE = "hub_page.html"
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text())
-
-
-def _file_exists(path: Path) -> bool:
-    try:
-        return path.exists()
-    except Exception:
-        return False
-
-
-def _validate_location_order(order: Any) -> Tuple[bool, List[str], str]:
-    if not isinstance(order, list):
-        return False, [], "location_order.position_order must be a list"
-    cleaned = [str(x).strip() for x in order if str(x).strip()]
-    if len(cleaned) != 8:
-        return False, [], "position_order must contain exactly 8 location keys"
-    if len(set(cleaned)) != 8:
-        return False, [], "position_order contains duplicate keys"
-    return True, cleaned, ""
-
-
-def _summarize_timeline(timeline) -> Dict[str, Any]:
-    return {
-        "program_id": timeline.program_id,
-        "tick_ms": timeline.tick_ms,
-        "duration_ms": timeline.duration_ms,
-        "num_ticks": len(timeline.ticks),
-        "location_keys": list(timeline.location_keys),
-    }
-
-
 # -----------------------------
 # In-memory runtime state
 # -----------------------------
@@ -92,8 +58,6 @@ class HubState:
         self.running: bool = False
 
         self.config: Optional[HubConfig] = None
-        self.program_spec: Optional[Any] = None
-        self.program_name: Optional[str] = None
         self.compiled_timeline: Optional[Any] = None
 
         self.heartbeat_timeout_ms: float = float(HEARTBEAT_TIMEOUT_MS_DEFAULT)
@@ -142,19 +106,19 @@ class HubState:
     # ---------- Public operations ----------
     def load_config_from_disk(self) -> Tuple[bool, str]:
         with self._lock:
-            if not _file_exists(LOCATION_ORDER_FILE):
+            if not file_exists(LOCATION_ORDER_FILE):
                 return False, f"Missing {LOCATION_ORDER_FILE}"
-            if not _file_exists(CONFIG_FILE):
+            if not file_exists(CONFIG_FILE):
                 return False, f"Missing {CONFIG_FILE}"
 
             try:
-                lo = _read_json(LOCATION_ORDER_FILE)
+                lo = read_json_file(LOCATION_ORDER_FILE)
                 order = lo.get("position_order", None)
-                ok, cleaned, err = _validate_location_order(order)
+                ok, cleaned, err = validate_location_order(order)
                 if not ok:
                     return False, err
 
-                cfg = _read_json(CONFIG_FILE)
+                cfg = read_json_file(CONFIG_FILE)
                 if int(cfg.get("version", 0)) != 2:
                     return False, "config_file.json version must be 2"
 
@@ -177,40 +141,6 @@ class HubState:
                 return True, "ok"
             except Exception as e:
                 return False, str(e)
-
-    def load_program_json(self, raw_program: Dict[str, Any]) -> Tuple[bool, str]:
-        with self._lock:
-            if self.config is None:
-                return False, "Config not loaded"
-            locs = list(self.config.position_order)
-
-        ok, spec, msg = normalize_and_validate_program_spec(raw_program, location_keys=locs)
-        if not ok or spec is None:
-            return False, msg
-
-        with self._lock:
-            self.program_spec = spec
-            self.program_name = spec.program_id
-            self.compiled_timeline = None
-            return True, "ok"
-
-    def compile_program(self, *, sparse_targets: bool = True, max_delta_per_tick: Optional[int] = None) -> Tuple[bool, str]:
-        with self._lock:
-            if self.config is None:
-                return False, "Config not loaded"
-            if self.program_spec is None:
-                return False, "Program not loaded"
-
-            timeline = compile_timeline(
-                self.program_spec,
-                location_keys=self.config.position_order,
-                start_state=self.normal_angles,
-                sparse_targets=bool(sparse_targets),
-                max_delta_per_tick=max_delta_per_tick,
-                apply_slew_limits=True,
-            )
-            self.compiled_timeline = timeline
-            return True, "ok"
 
     def stop(self) -> None:
         with self._lock:
@@ -256,19 +186,10 @@ class HubState:
                 return False, "Not enabled"
             if self.config is None:
                 return False, "Config not loaded"
-            if self.program_spec is None:
-                return False, "Program not loaded"
             if self.running:
                 return False, "Already running"
             if self.compiled_timeline is None:
-                timeline = compile_timeline(
-                    self.program_spec,
-                    location_keys=self.config.position_order,
-                    start_state=self.normal_angles,
-                    sparse_targets=True,
-                    apply_slew_limits=True,
-                )
-                self.compiled_timeline = timeline
+                return False, "No compiled timeline loaded (use programming app)"
 
             self.running = True
             self.packet_idx = 0
@@ -373,10 +294,8 @@ class HubState:
                 "enabled": self.enabled,
                 "running": self.running,
                 "config_loaded": self.config is not None,
-                "program_loaded": self.program_spec is not None,
-                "program_name": self.program_name,
                 "compiled_loaded": self.compiled_timeline is not None,
-                "compiled_summary": _summarize_timeline(self.compiled_timeline) if self.compiled_timeline is not None else None,
+                "compiled_summary": summarize_timeline(self.compiled_timeline) if self.compiled_timeline is not None else None,
                 "heartbeat_timeout_ms": self.heartbeat_timeout_ms,
                 "stop_on_clamp": self.stop_on_clamp,
                 "packet_idx": self.packet_idx,
@@ -392,23 +311,6 @@ class HubState:
         with self._lock:
             n = max(1, min(1000, int(n)))
             return list(self.telemetry[-n:])
-
-    def program_preview(self, n: int) -> Dict[str, Any]:
-        with self._lock:
-            n = max(1, min(200, int(n)))
-            if self.compiled_timeline is None:
-                return {"ok": False, "error": "Program not compiled"}
-            ticks = self.compiled_timeline.ticks[:n]
-            out_ticks = [
-                {
-                    "tick": int(t.tick),
-                    "t_ms": int(t.t_ms),
-                    "targets": dict(t.targets),
-                    "meta": {"step_id": t.meta.step_id, "step_index": int(t.meta.step_index)},
-                }
-                for t in ticks
-            ]
-            return {"ok": True, "summary": _summarize_timeline(self.compiled_timeline), "ticks": out_ticks}
 
 
 # -----------------------------
@@ -445,78 +347,9 @@ def api_heartbeat():
     return jsonify({"ok": True, "status": state.status()})
 
 
-@app.get("/api/program_preview")
-def api_program_preview():
-    try:
-        count = int(request.args.get("count", 20))
-    except Exception:
-        count = 20
-    out = state.program_preview(count)
-    return jsonify(out), (200 if out.get("ok") else 400)
-
-
 @app.post("/api/load_config")
 def api_load_config():
     ok, msg = state.load_config_from_disk()
-    code = 200 if ok else 400
-    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
-
-
-@app.post("/api/load_program_json")
-def api_load_program_json():
-    data = request.get_json(force=True)
-    if not isinstance(data, dict):
-        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
-
-    prog = data.get("program", None)
-    if not isinstance(prog, dict):
-        return jsonify({"ok": False, "error": "program must be an object"}), 400
-
-    ok, msg = state.load_program_json(prog)
-    code = 200 if ok else 400
-    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
-
-
-@app.post("/api/load_program")
-def api_load_program():
-    """
-    Backward-compatible endpoint name.
-    New contract expects:
-      { "program": { ... program json ... } }
-    """
-    data = request.get_json(force=True)
-    if not isinstance(data, dict):
-        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
-
-    prog = data.get("program", None)
-    if not isinstance(prog, dict):
-        return jsonify({"ok": False, "error": "program must be an object (NPZ path loading removed)"}), 400
-
-    ok, msg = state.load_program_json(prog)
-    code = 200 if ok else 400
-    return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
-
-
-@app.post("/api/compile_program")
-def api_compile_program():
-    data = request.get_json(force=True) if request.data else {}
-    if data is None:
-        data = {}
-    if not isinstance(data, dict):
-        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
-
-    sparse_targets = bool(data.get("sparse_targets", True))
-    max_delta_raw = data.get("max_delta_per_tick", None)
-    max_delta = None
-    if max_delta_raw is not None:
-        try:
-            max_delta = int(max_delta_raw)
-        except Exception:
-            return jsonify({"ok": False, "error": "max_delta_per_tick must be an integer"}), 400
-        if max_delta < 1:
-            return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
-
-    ok, msg = state.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta)
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
 
