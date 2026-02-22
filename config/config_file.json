@@ -60,7 +60,7 @@
     "rear_right_knee": {
       "channel": 15,
       "limits": {
-        "deg_min": 30,
+        "deg_min": 40,
         "deg_max": 180,
         "invert": true
       }
