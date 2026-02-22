@@ -414,13 +414,11 @@
                             <button class="primary" id="btnLoadConfig">Load Config</button>
                             <button class="primary" id="btnLoadProgram">Load Program</button>
                             <button class="primary" id="btnCompile">Compile</button>
-                        </div>
-                        <div class="row tight">
                             <label class="muted" style="display:flex;align-items:center;gap:8px;">
                                 <input id="inpSparse" type="checkbox" checked />
                                 <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
                             </label>
-                            <div style="flex:1; min-width: 170px;">
+                            <div style="width: 170px;">
                                 <input
                                     id="inpMaxDelta"
                                     type="number"
@@ -430,8 +428,8 @@
                                     title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
                                 />
                             </div>
-                            <div class="status" id="statusText">status: idle</div>
                         </div>
+                        <div class="status" id="statusText">status: idle</div>
                     </div>
                 </div>
             </div>
