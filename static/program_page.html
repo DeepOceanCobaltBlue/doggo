@@ -126,12 +126,12 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            align-items: center;
+            align-items: stretch;
         }
 
         .canvasWrap {
-            width: 80%;
-            height: 80%;
+            width: 100%;
+            height: 100%;
             border: 1px solid var(--border);
             border-radius: 14px;
             background: rgba(15, 18, 32, .55);
@@ -163,12 +163,13 @@
         .ok { color: var(--ok); }
         .danger { color: var(--danger); }
         .simSplit {
-            width: 80%;
-            height: 80%;
+            width: 100%;
+            height: 100%;
             display: grid;
-            grid-template-columns: 1fr 180px;
+            grid-template-columns: minmax(0, 1fr) 180px;
             gap: 10px;
             min-height: 0;
+            align-items: stretch;
         }
         .simInfo {
             border: 1px solid var(--border);
@@ -178,6 +179,8 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            height: 100%;
+            overflow: auto;
         }
         .simInfoTitle {
             font-size: 12px;
