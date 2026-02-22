@@ -81,7 +81,7 @@
         }
         .headerSplit {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 460px;
+            grid-template-columns: minmax(0, 1fr) auto;
             gap: 12px;
             align-items: start;
         }
@@ -93,13 +93,18 @@
         }
         .headerRight {
             min-width: 0;
-            border: 1px solid rgba(255, 255, 255, .10);
-            border-radius: 12px;
-            background: rgba(15, 18, 32, .42);
-            padding: 8px;
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
             gap: 8px;
+            flex-wrap: wrap;
+        }
+        .controlInline {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .row {
@@ -405,12 +410,10 @@
                         </div>
                     </div>
                     <div class="headerRight">
-                        <div class="pillbar">
+                        <div class="controlInline">
                             <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
                             <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
                             <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
-                        </div>
-                        <div class="row tight">
                             <button class="primary" id="btnLoadConfig">Load Config</button>
                             <button class="primary" id="btnLoadProgram">Load Program</button>
                             <button class="primary" id="btnCompile">Compile</button>
@@ -418,7 +421,7 @@
                                 <input id="inpSparse" type="checkbox" checked />
                                 <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
                             </label>
-                            <div style="width: 170px;">
+                            <div style="width: 160px;">
                                 <input
                                     id="inpMaxDelta"
                                     type="number"
@@ -428,8 +431,8 @@
                                     title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
                                 />
                             </div>
+                            <div class="status" id="statusText">status: idle</div>
                         </div>
-                        <div class="status" id="statusText">status: idle</div>
                     </div>
                 </div>
             </div>
