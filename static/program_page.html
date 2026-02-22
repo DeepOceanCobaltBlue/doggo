@@ -79,6 +79,28 @@
             flex-direction: column;
             gap: 10px;
         }
+        .headerSplit {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 460px;
+            gap: 12px;
+            align-items: start;
+        }
+        .headerLeft {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .headerRight {
+            min-width: 0;
+            border: 1px solid rgba(255, 255, 255, .10);
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .42);
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
 
         .row {
             display: flex;
@@ -329,11 +351,11 @@
             display: inline-flex;
             gap: 8px;
             align-items: center;
-            padding: 6px 10px;
+            padding: 4px 8px;
             border-radius: 999px;
             border: 1px solid rgba(255, 255, 255, .14);
             background: #0f1220;
-            font-size: 13px;
+            font-size: 12px;
         }
         .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
         .dot.ok { background: var(--ok); }
@@ -356,6 +378,7 @@
             .simSplit { width: 100%; height: 100%; grid-template-columns: 1fr; }
             .timelineBody { grid-template-columns: 1fr; }
             .timelineLabels { display: none; }
+            .headerSplit { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -364,19 +387,52 @@
     <div class="wrap">
         <section class="main">
             <div class="mainHeader">
-                <div>
-                    <h1 class="title">Doggo Programming</h1>
-                    <div class="muted">Program compiler + simulator shell. Right and bottom bars are reserved.</div>
-                </div>
-                <div class="row frameRow">
-                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                        <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
-                        Left Frame
-                    </label>
-                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                        <input type="radio" name="frameSide" id="frameRight" value="right" />
-                        Right Frame
-                    </label>
+                <div class="headerSplit">
+                    <div class="headerLeft">
+                        <div>
+                            <h1 class="title">Doggo Programming</h1>
+                            <div class="muted">Program compiler + simulator shell. Right and bottom bars are reserved.</div>
+                        </div>
+                        <div class="row frameRow">
+                            <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                                <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
+                                Left Frame
+                            </label>
+                            <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                                <input type="radio" name="frameSide" id="frameRight" value="right" />
+                                Right Frame
+                            </label>
+                        </div>
+                    </div>
+                    <div class="headerRight">
+                        <div class="pillbar">
+                            <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
+                            <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
+                            <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
+                        </div>
+                        <div class="row tight">
+                            <button class="primary" id="btnLoadConfig">Load Config</button>
+                            <button class="primary" id="btnLoadProgram">Load Program</button>
+                            <button class="primary" id="btnCompile">Compile</button>
+                        </div>
+                        <div class="row tight">
+                            <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                                <input id="inpSparse" type="checkbox" checked />
+                                <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
+                            </label>
+                            <div style="flex:1; min-width: 170px;">
+                                <input
+                                    id="inpMaxDelta"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    placeholder="max_delta_per_tick"
+                                    title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
+                                />
+                            </div>
+                            <div class="status" id="statusText">status: idle</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -401,36 +457,6 @@
 
         <aside class="sidebar">
             <div style="font-weight:900; margin-bottom:8px;">Right Control Bar</div>
-            <details open>
-                <summary>Program Controls</summary>
-                <div class="pillbar" style="margin-top:10px;">
-                    <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
-                    <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
-                    <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
-                </div>
-                <div class="row" style="margin-top:10px;">
-                    <button class="primary" id="btnLoadConfig">Load Config</button>
-                    <button class="primary" id="btnLoadProgram">Load Program</button>
-                    <button class="primary" id="btnCompile">Compile</button>
-                </div>
-                <div class="row" style="margin-top:10px;">
-                    <label class="muted" style="display:flex;align-items:center;gap:8px;">
-                        <input id="inpSparse" type="checkbox" checked />
-                        <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
-                    </label>
-                    <div style="width:100%;">
-                        <input
-                            id="inpMaxDelta"
-                            type="number"
-                            min="1"
-                            step="1"
-                            placeholder="max_delta_per_tick"
-                            title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
-                        />
-                    </div>
-                </div>
-                <div class="status" id="statusText" style="margin-top:10px;">status: idle</div>
-            </details>
             <div style="margin-top:12px; font-size:12px;">
                 <div>- Placeholder: gait controls</div>
                 <div>- Placeholder: interpolation/smoothing knobs</div>
@@ -466,10 +492,10 @@
                 </div>
                 <div class="timelineBody">
                     <div class="timelineLabels">
-                        <div class="timelineLabelCell"><span class="timelineTag">Hip Front</span><span id="tlJoint1">front_left_hip</span></div>
-                        <div class="timelineLabelCell"><span class="timelineTag">Knee Front</span><span id="tlJoint2">front_left_knee</span></div>
-                        <div class="timelineLabelCell"><span class="timelineTag">Hip Rear</span><span id="tlJoint3">rear_left_hip</span></div>
-                        <div class="timelineLabelCell"><span class="timelineTag">Knee Rear</span><span id="tlJoint4">rear_left_knee</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Front Hip</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Front Knee</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Rear Hip</span></div>
+                        <div class="timelineLabelCell"><span class="timelineTag">Rear Knee</span></div>
                     </div>
                     <div class="timelineTracksViewport" id="timelineTracksViewport">
                         <div class="timelineTracksInner" id="timelineTracksInner">
@@ -524,19 +550,7 @@
             txt.textContent = text;
         }
 
-        function timelineJointKeys(side) {
-            if (side === "right") {
-                return ["front_right_hip", "front_right_knee", "rear_right_hip", "rear_right_knee"];
-            }
-            return ["front_left_hip", "front_left_knee", "rear_left_hip", "rear_left_knee"];
-        }
-
         function renderTimelineSurface() {
-            const keys = timelineJointKeys(timelineSide);
-            document.getElementById("tlJoint1").textContent = keys[0];
-            document.getElementById("tlJoint2").textContent = keys[1];
-            document.getElementById("tlJoint3").textContent = keys[2];
-            document.getElementById("tlJoint4").textContent = keys[3];
             document.getElementById("timelineSideSelect").value = timelineSide;
             document.getElementById("timelineSync").checked = timelineSyncEnabled;
 
