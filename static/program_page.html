@@ -422,6 +422,10 @@
             border-color: #ff5d5d;
             box-shadow: 0 0 0 1px rgba(255, 93, 93, .75);
         }
+        .timelineEventBlock.draft {
+            border-style: dashed;
+            opacity: 0.75;
+        }
         .timelinePlayhead {
             position: absolute;
             top: 0;
@@ -649,6 +653,7 @@
         let timelineEvents = [];
         let selectedEventId = null;
         let dragState = null;
+        let createEventState = null;
         let appStatus = {
             config_loaded: false,
             program_loaded: false,
@@ -660,6 +665,12 @@
 
         function eventById(eventId) {
             return timelineEvents.find((e) => Number(e.id) === Number(eventId)) || null;
+        }
+
+        function frameFromClientX(rowEl, viewport, clientX) {
+            const rect = rowEl.getBoundingClientRect();
+            const xPx = Math.max(0, (clientX - rect.left) + viewport.scrollLeft);
+            return Math.max(0, Math.floor(xPx / TIMELINE_STEP_PX));
         }
 
         function timelineJointKeysForSide(side) {
@@ -846,6 +857,81 @@
             window.addEventListener("mouseup", onEventDragEnd, { once: true });
         }
 
+        function beginCreateEvent(mouseDownEvent, rowEl, viewport) {
+            if (mouseDownEvent.button !== 0) return;
+            if (mouseDownEvent.target && mouseDownEvent.target.closest(".timelineEventBlock")) return;
+            const rowIdx = Number(rowEl.dataset.row || -1);
+            const keysNow = timelineJointKeysForSide(timelineSide);
+            const joint = keysNow[rowIdx];
+            if (!joint) return;
+
+            const frame = frameFromClientX(rowEl, viewport, mouseDownEvent.clientX);
+            createEventState = {
+                side: timelineSide,
+                rowIdx,
+                joint,
+                startFrame: frame,
+                endFrame: frame,
+            };
+            selectedEventId = null;
+            setEventError("");
+            renderTimelineSurface();
+
+            document.body.style.userSelect = "none";
+            document.body.style.cursor = "crosshair";
+            window.addEventListener("mousemove", onCreateEventMove);
+            window.addEventListener("mouseup", onCreateEventEnd, { once: true });
+        }
+
+        function onCreateEventMove(ev) {
+            if (!createEventState) return;
+            const viewport = document.getElementById("timelineTracksViewport");
+            const rowEl = document.querySelector(`.timelineTrackRow[data-row="${createEventState.rowIdx}"]`);
+            if (!viewport || !rowEl) return;
+
+            const vRect = viewport.getBoundingClientRect();
+            const edgePx = 24;
+            if (ev.clientX < vRect.left + edgePx) {
+                viewport.scrollLeft = Math.max(0, viewport.scrollLeft - TIMELINE_STEP_PX);
+            } else if (ev.clientX > vRect.right - edgePx) {
+                viewport.scrollLeft = viewport.scrollLeft + TIMELINE_STEP_PX;
+            }
+
+            createEventState.endFrame = frameFromClientX(rowEl, viewport, ev.clientX);
+            renderTimelineSurface();
+            renderEventPropertiesPanel();
+        }
+
+        async function onCreateEventEnd() {
+            window.removeEventListener("mousemove", onCreateEventMove);
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
+            if (!createEventState) return;
+
+            const created = { ...createEventState };
+            createEventState = null;
+            renderTimelineSurface();
+
+            const startFrame = Math.min(Number(created.startFrame), Number(created.endFrame));
+            const endFrame = Math.max(Number(created.startFrame), Number(created.endFrame));
+            const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[created.joint] ?? 135)));
+            const resp = await api("/api/timeline/events", "POST", {
+                side: created.side,
+                joint_key: created.joint,
+                start_frame: startFrame,
+                end_frame: endFrame,
+                angle_deg: Math.round(defaultAngle),
+            });
+            if (!resp.ok) {
+                setEventError(resp.data?.error || "event create failed");
+                return;
+            }
+            setEventError("");
+            selectedEventId = Number(resp.data?.event?.id || null);
+            await loadTimelineEvents();
+            await refreshStatus();
+        }
+
         function onEventDragMove(ev) {
             if (!dragState) return;
             const evt = eventById(dragState.eventId);
@@ -997,33 +1083,28 @@
                     rowEl.appendChild(block);
                 }
 
+                if (
+                    createEventState &&
+                    createEventState.side === timelineSide &&
+                    Number(createEventState.rowIdx) === Number(rowIdx) &&
+                    createEventState.joint === jointKey
+                ) {
+                    const draftBlock = document.createElement("div");
+                    draftBlock.className = "timelineEventBlock draft";
+                    const start = Math.min(Number(createEventState.startFrame), Number(createEventState.endFrame));
+                    const end = Math.max(Number(createEventState.startFrame), Number(createEventState.endFrame));
+                    const widthFrames = Math.max(1, (end - start + 1));
+                    draftBlock.style.left = `${start * TIMELINE_STEP_PX}px`;
+                    draftBlock.style.width = `${Math.max(TIMELINE_STEP_PX, widthFrames * TIMELINE_STEP_PX)}px`;
+                    draftBlock.textContent = "new";
+                    draftBlock.title = `${jointKey}: ${start}-${end}`;
+                    rowEl.appendChild(draftBlock);
+                }
+
                 if (!rowEl.dataset.bound) {
                     rowEl.dataset.bound = "1";
-                    rowEl.addEventListener("click", async (ev) => {
-                        if (ev.target && ev.target.closest(".timelineEventBlock")) return;
-                        const rowIdxLocal = Number(rowEl.dataset.row || -1);
-                        const keysNow = timelineJointKeysForSide(timelineSide);
-                        const joint = keysNow[rowIdxLocal];
-                        if (!joint) return;
-                        const rect = rowEl.getBoundingClientRect();
-                        const xPx = Math.max(0, (ev.clientX - rect.left) + viewport.scrollLeft);
-                        const frame = Math.max(0, Math.floor(xPx / TIMELINE_STEP_PX));
-                        const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[joint] ?? 135)));
-                        const resp = await api("/api/timeline/events", "POST", {
-                            side: timelineSide,
-                            joint_key: joint,
-                            start_frame: frame,
-                            end_frame: frame,
-                            angle_deg: Math.round(defaultAngle),
-                        });
-                        if (!resp.ok) {
-                            setEventError(resp.data?.error || "event create failed");
-                            return;
-                        }
-                        setEventError("");
-                        selectedEventId = Number(resp.data?.event?.id || null);
-                        await loadTimelineEvents();
-                        await refreshStatus();
+                    rowEl.addEventListener("mousedown", (ev) => {
+                        beginCreateEvent(ev, rowEl, viewport);
                     });
                 }
             }
