@@ -73,23 +73,36 @@
         }
 
         .mainHeader {
-            padding: 12px 14px;
+            padding: 10px 14px;
             border-bottom: 1px solid rgba(255, 255, 255, .10);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+            flex: 0 0 156px;
+            min-height: 156px;
+            max-height: 156px;
+            overflow: hidden;
+        }
+        .headerSegment {
+            height: 100%;
+            border: 1px solid rgba(255, 255, 255, .12);
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .4);
+            padding: 10px;
+            overflow: hidden;
         }
         .headerSplit {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
             gap: 12px;
             align-items: start;
+            height: 100%;
         }
         .headerLeft {
             min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 8px;
+            border-right: 1px solid rgba(255, 255, 255, .12);
+            padding-right: 12px;
+            justify-content: center;
         }
         .headerRight {
             min-width: 0;
@@ -98,6 +111,8 @@
             justify-content: flex-end;
             gap: 8px;
             flex-wrap: wrap;
+            padding-left: 12px;
+            align-content: center;
         }
         .controlInline {
             display: flex;
@@ -195,6 +210,13 @@
         }
 
         .status { font-size: 12px; color: var(--muted); }
+        #statusText {
+            display: inline-block;
+            width: 240px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .ok { color: var(--ok); }
         .danger { color: var(--danger); }
         .simSplit {
@@ -442,6 +464,20 @@
             .timelineBody { grid-template-columns: 1fr; }
             .timelineLabels { display: none; }
             .headerSplit { grid-template-columns: 1fr; }
+            .headerLeft {
+                border-right: none;
+                padding-right: 0;
+                justify-content: flex-start;
+            }
+            .headerRight {
+                padding-left: 0;
+                justify-content: flex-start;
+            }
+            .mainHeader {
+                flex: 0 0 196px;
+                min-height: 196px;
+                max-height: 196px;
+            }
         }
     </style>
 </head>
@@ -450,46 +486,48 @@
     <div class="wrap">
         <section class="main">
             <div class="mainHeader">
-                <div class="headerSplit">
-                    <div class="headerLeft">
-                        <div>
-                            <h1 class="title">Doggo Programming</h1>
-                            <div class="muted">Program compiler + simulator shell. Right and bottom bars are reserved.</div>
-                        </div>
-                        <div class="row frameRow">
-                            <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                                <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
-                                Left Frame
-                            </label>
-                            <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                                <input type="radio" name="frameSide" id="frameRight" value="right" />
-                                Right Frame
-                            </label>
-                        </div>
-                    </div>
-                    <div class="headerRight">
-                        <div class="controlInline">
-                            <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
-                            <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
-                            <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
-                            <button class="primary" id="btnLoadConfig">Load Config</button>
-                            <button class="primary" id="btnLoadProgram">Load Program</button>
-                            <button class="primary" id="btnCompile">Compile</button>
-                            <label class="muted" style="display:flex;align-items:center;gap:8px;">
-                                <input id="inpSparse" type="checkbox" checked />
-                                <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
-                            </label>
-                            <div style="width: 160px;">
-                                <input
-                                    id="inpMaxDelta"
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    placeholder="max_delta_per_tick"
-                                    title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
-                                />
+                <div class="headerSegment">
+                    <div class="headerSplit">
+                        <div class="headerLeft">
+                            <div>
+                                <h1 class="title">Doggo Programming</h1>
+                                <div class="muted">Program compiler + simulator shell. Right and bottom bars are reserved.</div>
                             </div>
-                            <div class="status" id="statusText">status: idle</div>
+                            <div class="row frameRow">
+                                <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                                    <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
+                                    Left Frame
+                                </label>
+                                <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                                    <input type="radio" name="frameSide" id="frameRight" value="right" />
+                                    Right Frame
+                                </label>
+                            </div>
+                        </div>
+                        <div class="headerRight">
+                            <div class="controlInline">
+                                <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
+                                <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
+                                <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
+                                <button class="primary" id="btnLoadConfig">Load Config</button>
+                                <button class="primary" id="btnLoadProgram">Load Program</button>
+                                <button class="primary" id="btnCompile">Compile</button>
+                                <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                                    <input id="inpSparse" type="checkbox" checked />
+                                    <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
+                                </label>
+                                <div style="width: 160px;">
+                                    <input
+                                        id="inpMaxDelta"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        placeholder="max_delta_per_tick"
+                                        title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
+                                    />
+                                </div>
+                                <div class="status" id="statusText">status: idle</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -533,6 +571,7 @@
                         <button id="btnFramePlus10">+10 Frames</button>
                         <button id="btnFramePlay">Play</button>
                         <button id="btnFramePause">Pause</button>
+                        <button id="btnFrameStop">Stop</button>
                         <label class="muted" for="inpFrameNumber">Frame (tick)</label>
                         <input id="inpFrameNumber" type="number" min="0" step="1" value="0" style="width:110px;" />
                         <span class="muted" id="frameTotalTxt">/ 0</span>
@@ -675,6 +714,7 @@
             document.getElementById("btnFrameNext").disabled = !hasCompiled;
             document.getElementById("btnFramePlay").disabled = false;
             document.getElementById("btnFramePause").disabled = false;
+            document.getElementById("btnFrameStop").disabled = false;
             document.getElementById("inpFrameNumber").disabled = !hasCompiled;
 
             const summary = appStatus.compiled_summary;
@@ -1263,6 +1303,17 @@
         });
         document.getElementById("btnFramePause").addEventListener("click", () => {
             stopPlayback();
+        });
+        document.getElementById("btnFrameStop").addEventListener("click", async () => {
+            stopPlayback();
+            if (appStatus.compiled_loaded && previewTicks.length > 0) {
+                await seekTick(0);
+                return;
+            }
+            simTickIdx = 0;
+            appStatus.sim_tick_idx = 0;
+            applyUiState();
+            setStatus("stopped (frame reset to 0)", "muted");
         });
         document.getElementById("inpFrameNumber").addEventListener("change", async () => {
             const raw = document.getElementById("inpFrameNumber").value;
