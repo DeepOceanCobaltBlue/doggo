@@ -56,6 +56,23 @@ class SimCoreReference(unittest.TestCase):
         self.assertEqual(pack["rear_hip"], 120.0)
         self.assertEqual(pack["rear_knee"], 100.0)
 
+    def test_angles_pack_can_flip_sim_rotation_direction_per_joint(self) -> None:
+        dv = default_dyn_vars(location_keys=LOCATION_KEYS)
+        dv["joint_calibration_map"] = {loc_key: "identity" for loc_key in LOCATION_KEYS}
+        dv["sim_rotation_flip_map"] = {loc_key: False for loc_key in LOCATION_KEYS}
+        dv["sim_rotation_flip_map"]["front_right_hip"] = True
+        servo_limits = _default_servo_limits()
+
+        state = {
+            "front_right_hip": 100,
+            "front_right_knee": 180,
+            "rear_right_hip": 120,
+            "rear_right_knee": 170,
+        }
+        pack = angles_pack_for_side_from_state("right", state, dv=dv, servo_limits_by_location=servo_limits)
+        self.assertEqual(pack["front_hip"], 170.0)
+        self.assertEqual(pack["front_knee"], 90.0)
+
     def test_collision_predict_and_snapshot_shape(self) -> None:
         dv = default_dyn_vars(location_keys=LOCATION_KEYS)
         servo_limits = _default_servo_limits()

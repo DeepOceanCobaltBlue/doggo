@@ -708,6 +708,12 @@
             </div>
 
             <div class="sidebarSection">
+                <div class="sectionTitle">Sim Direction Flip</div>
+                <div class="muted">Per-joint simulation direction inversion.</div>
+                <div id="sim_flip_map" class="field"></div>
+            </div>
+
+            <div class="sidebarSection">
                 <div class="sectionTitle">Universal settings</div>
 
                 <div>
@@ -1428,6 +1434,12 @@
                     dynVars.joint_calibration_map[loc.key] = "identity";
                 }
             }
+            if (!dynVars.sim_rotation_flip_map || typeof dynVars.sim_rotation_flip_map !== "object") {
+                dynVars.sim_rotation_flip_map = {};
+            }
+            for (const loc of locations) {
+                dynVars.sim_rotation_flip_map[loc.key] = Boolean(dynVars.sim_rotation_flip_map[loc.key]);
+            }
         }
 
         function calibrationProfileNames() {
@@ -1574,6 +1586,29 @@
                 row.appendChild(lab);
                 row.appendChild(sel);
                 mapWrap.appendChild(row);
+            }
+
+            const flipWrap = document.getElementById("sim_flip_map");
+            flipWrap.innerHTML = "";
+            for (const loc of locations) {
+                const row = document.createElement("div");
+                row.className = "row";
+                const lab = document.createElement("label");
+                lab.className = "muted";
+                lab.textContent = loc.label;
+                lab.htmlFor = `sim_flip_${loc.key}`;
+                const chk = document.createElement("input");
+                chk.id = `sim_flip_${loc.key}`;
+                chk.type = "checkbox";
+                chk.checked = Boolean(dynVars.sim_rotation_flip_map[loc.key]);
+                chk.addEventListener("change", () => {
+                    dynVars.sim_rotation_flip_map[loc.key] = chk.checked;
+                    scheduleDynVarsSave();
+                    renderViz();
+                });
+                row.appendChild(lab);
+                row.appendChild(chk);
+                flipWrap.appendChild(row);
             }
         }
 
@@ -1780,7 +1815,9 @@
         function calibratedMeasurementForViz(locKey, physicalAngle) {
             const profiles = dynVars?.calibration_profiles;
             const jmap = dynVars?.joint_calibration_map;
-            if (!profiles || typeof profiles !== "object") return { mode: "servo_physical_deg", value: physicalAngle };
+            const flipMap = dynVars?.sim_rotation_flip_map;
+            const flippedPhysical = (flipMap && flipMap[locKey]) ? (270 - physicalAngle) : physicalAngle;
+            if (!profiles || typeof profiles !== "object") return { mode: "servo_physical_deg", value: flippedPhysical };
             let profName = String((jmap && jmap[locKey]) || "identity");
             if (!profiles[profName]) profName = "identity";
             const prof = profiles[profName];
@@ -1789,8 +1826,8 @@
                 ? String(prof.measurement_mode)
                 : "servo_physical_deg";
             const fit = fitLinearFromPairs(Array.isArray(prof.pairs) ? prof.pairs : []);
-            if (!fit) return { mode, value: physicalAngle };
-            return { mode, value: Math.max(0, Math.min(270, fit.m * physicalAngle + fit.b)) };
+            if (!fit) return { mode, value: flippedPhysical };
+            return { mode, value: Math.max(0, Math.min(270, fit.m * flippedPhysical + fit.b)) };
         }
 
         function getSideJointInputs(side, state) {

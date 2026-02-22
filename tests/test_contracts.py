@@ -76,6 +76,7 @@ class ConfigApiContracts(unittest.TestCase):
         data = resp.get_json()
         self.assertIn("dynamic_limits", data)
         self.assertNotIn("dynamic_limit_variables", data)
+        self.assertIn("sim_rotation_flip_map", data["dynamic_limits"])
 
     def test_stances_list_and_activate_default_test_mode(self) -> None:
         client = self.config_app.app.test_client()
@@ -517,6 +518,20 @@ class ConfigApiContracts(unittest.TestCase):
             self.assertIn("calibration_profiles", body)
             self.assertIn("joint_calibration_map", body)
             self.assertEqual(body["joint_calibration_map"]["front_left_hip"], "hips")
+        finally:
+            restore = client.post("/api/dynamic_limits", json={"dynamic_limits": cur})
+            self.assertEqual(restore.status_code, 200)
+
+    def test_dynamic_limits_accepts_sim_rotation_flip_map(self) -> None:
+        client = self.config_app.app.test_client()
+        cur = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]
+        try:
+            update = {"sim_rotation_flip_map": {"front_left_hip": True, "rear_right_knee": True}}
+            resp = client.post("/api/dynamic_limits", json={"dynamic_limits": update})
+            self.assertEqual(resp.status_code, 200)
+            body = resp.get_json()["dynamic_limits"]
+            self.assertTrue(body["sim_rotation_flip_map"]["front_left_hip"])
+            self.assertTrue(body["sim_rotation_flip_map"]["rear_right_knee"])
         finally:
             restore = client.post("/api/dynamic_limits", json={"dynamic_limits": cur})
             self.assertEqual(restore.status_code, 200)

@@ -88,6 +88,11 @@ def default_joint_calibration_map(location_keys: Optional[List[str]] = None) -> 
     return out
 
 
+def default_sim_rotation_flip_map(location_keys: Optional[List[str]] = None) -> Dict[str, bool]:
+    keys = location_keys or LOCATION_KEYS
+    return {loc_key: False for loc_key in keys}
+
+
 def default_dyn_vars(location_keys: Optional[List[str]] = None) -> Dict[str, Any]:
     return {
         "version": 2,
@@ -102,6 +107,7 @@ def default_dyn_vars(location_keys: Optional[List[str]] = None) -> Dict[str, Any
             "knee_standard": default_knee_standard_profile(),
         },
         "joint_calibration_map": default_joint_calibration_map(location_keys=location_keys),
+        "sim_rotation_flip_map": default_sim_rotation_flip_map(location_keys=location_keys),
     }
 
 
@@ -216,6 +222,13 @@ def load_dyn_vars(dyn_vars_file: Path, location_keys: Optional[List[str]] = None
                 else:
                     map_out[loc_key] = "identity"
         out["joint_calibration_map"] = map_out
+
+        flip_out = default_sim_rotation_flip_map(location_keys=keys)
+        flip_raw = raw.get("sim_rotation_flip_map", {})
+        if isinstance(flip_raw, dict):
+            for loc_key in keys:
+                flip_out[loc_key] = bool(flip_raw.get(loc_key, False))
+        out["sim_rotation_flip_map"] = flip_out
 
         return out
     except Exception:

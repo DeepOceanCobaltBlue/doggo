@@ -493,6 +493,20 @@ def api_set_dynamic_limits():
             map_out[loc.key] = prof_name
         merged["joint_calibration_map"] = map_out
 
+    # per-joint sim rotation direction flip
+    if "sim_rotation_flip_map" in dv:
+        flip_in = dv.get("sim_rotation_flip_map")
+        if not isinstance(flip_in, dict):
+            return jsonify({"ok": False, "error": "sim_rotation_flip_map must be an object"}), 400
+        flip_out = dict(
+            merged.get("sim_rotation_flip_map", sim_store.default_sim_rotation_flip_map(location_keys=_stance_location_keys()))
+        )
+        for loc in LOCATIONS:
+            if loc.key not in flip_in:
+                continue
+            flip_out[loc.key] = bool(flip_in.get(loc.key, False))
+        merged["sim_rotation_flip_map"] = flip_out
+
     # guarantee full joint map and valid references
     profiles = merged.get("calibration_profiles", {})
     if not isinstance(profiles, dict):
@@ -513,6 +527,14 @@ def api_set_dynamic_limits():
         p = str(jmap.get(loc.key, "identity")).strip()
         complete_map[loc.key] = p if p in profiles else "identity"
     merged["joint_calibration_map"] = complete_map
+
+    flip_map = merged.get("sim_rotation_flip_map", {})
+    if not isinstance(flip_map, dict):
+        flip_map = {}
+    complete_flip_map: Dict[str, bool] = {}
+    for loc in LOCATIONS:
+        complete_flip_map[loc.key] = bool(flip_map.get(loc.key, False))
+    merged["sim_rotation_flip_map"] = complete_flip_map
 
     for side in ("left", "right"):
         err = sim_store.validate_dyn_side_values(side, merged[side])

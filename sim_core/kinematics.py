@@ -147,12 +147,16 @@ def angle_from_knee_local_unit(v_local: Tuple[float, float]) -> float:
 def physical_sim_angle_from_state(
     loc_key: str,
     state_angles: Dict[str, int],
+    dv: Dict[str, Any],
     servo_limits_by_location: Dict[str, ServoLimits],
 ) -> float:
     raw = int(state_angles.get(loc_key, 135))
     limits = servo_limits_by_location[loc_key]
     _, physical = resolve_logical_and_physical_angle(raw, limits)
-    return float(physical)
+    flip_map = dv.get("sim_rotation_flip_map", {})
+    flip = bool(flip_map.get(loc_key, False)) if isinstance(flip_map, dict) else False
+    physical_out = (270.0 - float(physical)) if flip else float(physical)
+    return float(max(ANGLE_MIN_DEG, min(ANGLE_MAX_DEG, physical_out)))
 
 
 def angles_pack_for_side_from_state(
@@ -180,7 +184,7 @@ def angles_pack_for_side_from_state(
             "rear_knee": "rear_right_knee",
         }
 
-    phys = {k: physical_sim_angle_from_state(loc, state_angles, servo_limits_by_location) for k, loc in keys.items()}
+    phys = {k: physical_sim_angle_from_state(loc, state_angles, dv, servo_limits_by_location) for k, loc in keys.items()}
     cal: Dict[str, Tuple[str, float]] = {}
     for k, loc in keys.items():
         cal[k] = apply_sim_calibration_to_physical(loc, phys[k], dv, fit_cache=cache)
