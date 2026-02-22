@@ -34,6 +34,8 @@ def default_dyn_side() -> Dict[str, Any]:
         "shin_len_front_mm": 90.0,
         "thigh_len_rear_mm": 70.0,
         "shin_len_rear_mm": 90.0,
+        "front_knee_attach_backoff_mm": 0.0,
+        "rear_knee_attach_backoff_mm": 0.0,
         "front_thigh_radius_mm": 6.0,
         "front_shin_radius_mm": 6.0,
         "rear_thigh_radius_mm": 6.0,
@@ -114,6 +116,20 @@ def validate_dyn_side_values(side_name: str, side_vals: Dict[str, Any]) -> Optio
 
     if float(side_vals.get("hip_dx_mm", 0.0)) < 0.0:
         return f"{side_name}.hip_dx_mm must be >= 0"
+
+    front_backoff = float(side_vals.get("front_knee_attach_backoff_mm", 0.0))
+    rear_backoff = float(side_vals.get("rear_knee_attach_backoff_mm", 0.0))
+    front_thigh_len = float(side_vals.get("thigh_len_front_mm", 0.0))
+    rear_thigh_len = float(side_vals.get("thigh_len_rear_mm", 0.0))
+
+    if front_backoff < 0.0:
+        return f"{side_name}.front_knee_attach_backoff_mm must be >= 0"
+    if rear_backoff < 0.0:
+        return f"{side_name}.rear_knee_attach_backoff_mm must be >= 0"
+    if front_backoff > front_thigh_len:
+        return f"{side_name}.front_knee_attach_backoff_mm must be <= {side_name}.thigh_len_front_mm"
+    if rear_backoff > rear_thigh_len:
+        return f"{side_name}.rear_knee_attach_backoff_mm must be <= {side_name}.thigh_len_rear_mm"
 
     return None
 

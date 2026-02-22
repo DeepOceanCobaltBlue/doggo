@@ -40,7 +40,7 @@ DYN_VARS_FILE = CONFIG_DIR / "dynamic_limits.json"
 
 # Hub UI
 BASE_DIR = Path(__file__).resolve().parent
-HUB_STATIC_DIR = BASE_DIR / "hub_static"
+STATIC_DIR = BASE_DIR / "static"
 HUB_PAGE = "hub_page.html"
 
 
@@ -420,8 +420,8 @@ state = HubState()
 
 @app.get("/")
 def hub_index():
-    if HUB_STATIC_DIR.exists() and (HUB_STATIC_DIR / HUB_PAGE).exists():
-        return send_from_directory(str(HUB_STATIC_DIR), HUB_PAGE)
+    if STATIC_DIR.exists() and (STATIC_DIR / HUB_PAGE).exists():
+        return send_from_directory(str(STATIC_DIR), HUB_PAGE)
     return jsonify({"message": "hub running (UI not installed yet)", "status": state.status()})
 
 

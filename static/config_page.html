@@ -576,6 +576,17 @@
 
                 <div class="grid2">
                     <div class="field">
+                        <label class="muted">Front knee attach backoff (mm)</label>
+                        <input id="dl_kab_f" type="number" step="1">
+                    </div>
+                    <div class="field">
+                        <label class="muted">Rear knee attach backoff (mm)</label>
+                        <input id="dl_kab_r" type="number" step="1">
+                    </div>
+                </div>
+
+                <div class="grid2">
+                    <div class="field">
                         <label class="muted">Front thigh radius (mm)</label>
                         <input id="dl_r_ft" type="number" step="1">
                     </div>
@@ -1584,6 +1595,8 @@
             document.getElementById("dl_lsf").value = String(s.shin_len_front_mm ?? 90);
             document.getElementById("dl_ltr").value = String(s.thigh_len_rear_mm ?? 70);
             document.getElementById("dl_lsr").value = String(s.shin_len_rear_mm ?? 90);
+            document.getElementById("dl_kab_f").value = String(s.front_knee_attach_backoff_mm ?? 0);
+            document.getElementById("dl_kab_r").value = String(s.rear_knee_attach_backoff_mm ?? 0);
 
             document.getElementById("dl_r_ft").value = String(s.front_thigh_radius_mm ?? 6);
             document.getElementById("dl_r_fs").value = String(s.front_shin_radius_mm ?? 6);
@@ -1625,6 +1638,8 @@
             f("dl_lsf", "shin_len_front_mm");
             f("dl_ltr", "thigh_len_rear_mm");
             f("dl_lsr", "shin_len_rear_mm");
+            f("dl_kab_f", "front_knee_attach_backoff_mm");
+            f("dl_kab_r", "rear_knee_attach_backoff_mm");
 
             f("dl_r_ft", "front_thigh_radius_mm");
             f("dl_r_fs", "front_shin_radius_mm");
@@ -1826,6 +1841,8 @@
             const Lsf = Number(s.shin_len_front_mm ?? 90);
             const Ltr = Number(s.thigh_len_rear_mm ?? 70);
             const Lsr = Number(s.shin_len_rear_mm ?? 90);
+            const kabF = Math.max(0, Math.min(Ltf, Number(s.front_knee_attach_backoff_mm ?? 0)));
+            const kabR = Math.max(0, Math.min(Ltr, Number(s.rear_knee_attach_backoff_mm ?? 0)));
 
             const r_ft = Number(s.front_thigh_radius_mm ?? 6);
             const r_fs = Number(s.front_shin_radius_mm ?? 6);
@@ -1884,22 +1901,24 @@
 
             const a_fk = normalizeDeg(out_fk + off_fk);
             const a_rk = normalizeDeg(out_rk + off_rk);
-            const Kf = add(Hf, mul(uf, Ltf));
+            const KfTip = add(Hf, mul(uf, Ltf));
+            const Kf = add(Hf, mul(uf, Ltf - kabF));
             const vf = rotateCcwDeg(unitFromKneeAngleDeg(a_fk), a_fh);
             const Ff = add(Kf, mul(vf, Lsf));
 
-            const Kr = add(Hr, mul(ur, Ltr));
+            const KrTip = add(Hr, mul(ur, Ltr));
+            const Kr = add(Hr, mul(ur, Ltr - kabR));
             const vr = rotateCcwDeg(unitFromKneeAngleDeg(a_rk), a_rh);
             const Fr = add(Kr, mul(vr, Lsr));
 
             const frontRelDeg = segmentRelativeDeg(Hf, Kf, Ff);
             const rearRelDeg = segmentRelativeDeg(Hr, Kr, Fr);
-            const hipVsFrontThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hf, Kf);
-            const hipVsRearThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hr, Kr);
+            const hipVsFrontThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hf, KfTip);
+            const hipVsRearThighDeg = angleBetweenSegmentsDeg(Hf, Hr, Hr, KrTip);
 
             return {
                 side,
-                anchors: { Hf, Hr, Kf, Kr, Ff, Fr },
+                anchors: { Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr },
                 angles: {
                     a_fh: Number(j.front_hip.physical),
                     a_fk: Number(j.front_knee.physical),
@@ -1912,7 +1931,7 @@
                     hip_vs_front_thigh_deg: hipVsFrontThighDeg,
                     hip_vs_rear_thigh_deg: hipVsRearThighDeg,
                 },
-                lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr },
+                lengths: { hip_dx, hip_y, Ltf, Lsf, Ltr, Lsr, kabF, kabR },
                 radii: { r_ft, r_fs, r_rt, r_rs },
             };
         }
@@ -1949,10 +1968,10 @@
                 return;
             }
 
-            const { Hf, Hr, Kf, Kr, Ff, Fr } = g.anchors;
+            const { Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr } = g.anchors;
 
             // Compute bounds in model space
-            const pts = [Hf, Hr, Kf, Kr, Ff, Fr];
+            const pts = [Hf, Hr, Kf, Kr, KfTip, KrTip, Ff, Fr];
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
             for (const p of pts) {
                 minX = Math.min(minX, p.x);
@@ -2054,15 +2073,15 @@
             }
 
             // capsules (semi transparent)
-            drawCapsule(Hf, Kf, g.radii.r_ft, 0.18);
+            drawCapsule(Hf, KfTip, g.radii.r_ft, 0.18);
             drawCapsule(Kf, Ff, g.radii.r_fs, 0.18);
-            drawCapsule(Hr, Kr, g.radii.r_rt, 0.18);
+            drawCapsule(Hr, KrTip, g.radii.r_rt, 0.18);
             drawCapsule(Kr, Fr, g.radii.r_rs, 0.18);
 
             // centerlines (more visible)
-            drawLink(Hf, Kf, 3, 0.55);
+            drawLink(Hf, KfTip, 3, 0.55);
             drawLink(Kf, Ff, 3, 0.55);
-            drawLink(Hr, Kr, 3, 0.55);
+            drawLink(Hr, KrTip, 3, 0.55);
             drawLink(Kr, Fr, 3, 0.55);
 
             // highlighted guide lines for alignment checks
@@ -2107,6 +2126,7 @@
 
             overlay.textContent =
                 `Hip dx=${g.lengths.hip_dx.toFixed(1)}mm, hip y=${g.lengths.hip_y.toFixed(1)}mm • ` +
+                `Knee backoff: F=${g.lengths.kabF.toFixed(1)} R=${g.lengths.kabR.toFixed(1)}mm • ` +
                 `Offsets: FH=${(dynVars[g.side].front_hip_offset_deg ?? 0).toFixed(1)} FK=${(dynVars[g.side].front_knee_offset_deg ?? 0).toFixed(1)} ` +
                 `RH=${(dynVars[g.side].rear_hip_offset_deg ?? 0).toFixed(1)} RK=${(dynVars[g.side].rear_knee_offset_deg ?? 0).toFixed(1)} • ` +
                 collisionTxt;
@@ -2305,7 +2325,7 @@
         [
             "dl_step", "dl_iters",
             "dl_hip_dx", "dl_hip_y",
-            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr",
+            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr", "dl_kab_f", "dl_kab_r",
             "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
             "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
         ].forEach(id => {
@@ -2406,7 +2426,7 @@
         attachSelectOverwrite([
             "dl_step", "dl_iters",
             "dl_hip_dx", "dl_hip_y",
-            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr",
+            "dl_ltf", "dl_lsf", "dl_ltr", "dl_lsr", "dl_kab_f", "dl_kab_r",
             "dl_r_ft", "dl_r_fs", "dl_r_rt", "dl_r_rs",
             "dl_off_fh", "dl_off_fk", "dl_off_rh", "dl_off_rk",
             "cal_cmd_input", "cal_actual_input",

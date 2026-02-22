@@ -116,6 +116,24 @@ class ConfigApiContracts(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_dynamic_limits_reject_negative_knee_attach_backoff(self) -> None:
+        client = self.config_app.app.test_client()
+        resp = client.post(
+            "/api/dynamic_limits",
+            json={"dynamic_limits": {"left": {"front_knee_attach_backoff_mm": -1}}},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_dynamic_limits_reject_knee_attach_backoff_beyond_thigh_length(self) -> None:
+        client = self.config_app.app.test_client()
+        cur = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]
+        too_large = float(cur["left"]["thigh_len_front_mm"]) + 1.0
+        resp = client.post(
+            "/api/dynamic_limits",
+            json={"dynamic_limits": {"left": {"front_knee_attach_backoff_mm": too_large}}},
+        )
+        self.assertEqual(resp.status_code, 400)
+
     def test_command_collision_clamps_when_geometry_forces_overlap(self) -> None:
         client = self.config_app.app.test_client()
         original = client.get("/api/dynamic_limits").get_json()["dynamic_limits"]

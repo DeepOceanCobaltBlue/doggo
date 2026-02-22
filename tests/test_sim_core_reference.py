@@ -110,6 +110,23 @@ class SimCoreReference(unittest.TestCase):
         self.assertTrue(collides)
         self.assertIsInstance(details, dict)
 
+    def test_knee_attach_backoff_moves_shin_start_without_changing_thigh_capsule(self) -> None:
+        dv = default_dyn_vars(location_keys=LOCATION_KEYS)
+        angles = {"front_hip": 140.0, "front_knee": 135.0, "rear_hip": 130.0, "rear_knee": 150.0}
+
+        front0, _ = build_leg_capsules_for_side(dv, "left", angles)
+        dv["left"]["front_knee_attach_backoff_mm"] = 10.0
+        front1, _ = build_leg_capsules_for_side(dv, "left", angles)
+
+        thigh0 = next(c for c in front0 if c.name == "front_thigh")
+        shin0 = next(c for c in front0 if c.name == "front_shin")
+        thigh1 = next(c for c in front1 if c.name == "front_thigh")
+        shin1 = next(c for c in front1 if c.name == "front_shin")
+
+        self.assertEqual(thigh0.a, thigh1.a)
+        self.assertEqual(thigh0.b, thigh1.b)
+        self.assertNotEqual(shin0.a, shin1.a)
+
     def test_step_search_returns_expected_tuple(self) -> None:
         dv = default_dyn_vars(location_keys=LOCATION_KEYS)
         dv["left"]["front_thigh_radius_mm"] = 1000.0

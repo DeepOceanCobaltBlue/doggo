@@ -88,6 +88,8 @@ def build_leg_capsules_for_side(
     lsf = float(s["shin_len_front_mm"])
     ltr = float(s["thigh_len_rear_mm"])
     lsr = float(s["shin_len_rear_mm"])
+    backoff_front = max(0.0, min(ltf, float(s.get("front_knee_attach_backoff_mm", 0.0))))
+    backoff_rear = max(0.0, min(ltr, float(s.get("rear_knee_attach_backoff_mm", 0.0))))
 
     r_f_thigh = float(s["front_thigh_radius_mm"])
     r_f_shin = float(s["front_shin_radius_mm"])
@@ -110,23 +112,25 @@ def build_leg_capsules_for_side(
     a_r_knee = normalize_deg(a_r_knee_cmd + off_r_knee)
 
     uf = unit_from_angle_deg(a_f_hip)
-    kf = pt_add(hf, pt_mul(uf, ltf))
+    kf_tip = pt_add(hf, pt_mul(uf, ltf))
+    kf = pt_add(hf, pt_mul(uf, ltf - backoff_front))
     vf_local = unit_from_knee_angle_deg(a_f_knee)
     vf = rotate_ccw_deg(vf_local, a_f_hip)
     ff = pt_add(kf, pt_mul(vf, lsf))
 
     ur = unit_from_angle_deg(a_r_hip)
-    kr = pt_add(hr, pt_mul(ur, ltr))
+    kr_tip = pt_add(hr, pt_mul(ur, ltr))
+    kr = pt_add(hr, pt_mul(ur, ltr - backoff_rear))
     vr_local = unit_from_knee_angle_deg(a_r_knee)
     vr = rotate_ccw_deg(vr_local, a_r_hip)
     fr = pt_add(kr, pt_mul(vr, lsr))
 
     front_caps = [
-        Capsule(a=hf, b=kf, r=r_f_thigh, name="front_thigh"),
+        Capsule(a=hf, b=kf_tip, r=r_f_thigh, name="front_thigh"),
         Capsule(a=kf, b=ff, r=r_f_shin, name="front_shin"),
     ]
     rear_caps = [
-        Capsule(a=hr, b=kr, r=r_r_thigh, name="rear_thigh"),
+        Capsule(a=hr, b=kr_tip, r=r_r_thigh, name="rear_thigh"),
         Capsule(a=kr, b=fr, r=r_r_shin, name="rear_shin"),
     ]
     return front_caps, rear_caps
