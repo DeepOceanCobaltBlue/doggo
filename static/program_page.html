@@ -197,13 +197,21 @@
                 </div>
                 <div class="row">
                     <button class="primary" id="btnLoadConfig">Load Config</button>
-                    <button class="primary" id="btnLoadProgram">Load Program JSON</button>
+                    <button class="primary" id="btnLoadProgram">Load Program</button>
                     <button class="primary" id="btnCompile">Compile</button>
                     <button id="btnPrevTick">Prev Tick</button>
                     <button id="btnPlay">Play</button>
                     <button id="btnNextTick">Next Tick</button>
                 </div>
                 <div class="row">
+                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                        <input type="radio" name="frameSide" id="frameLeft" value="left" checked />
+                        Left Frame
+                    </label>
+                    <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                        <input type="radio" name="frameSide" id="frameRight" value="right" />
+                        Right Frame
+                    </label>
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
                         <input id="inpSparse" type="checkbox" checked /> sparse targets
                     </label>
@@ -212,12 +220,6 @@
                     </div>
                     <div class="status" id="statusText">status: idle</div>
                 </div>
-                <details>
-                    <summary>Program JSON</summary>
-                    <div style="margin-top:10px;">
-                        <textarea id="inpProgram"></textarea>
-                    </div>
-                </details>
             </div>
 
             <div class="mainBody">
@@ -259,6 +261,7 @@
         let previewTickMs = 20;
         let simTickIdx = 0;
         let playTimer = null;
+        let selectedFrameSide = "left";
         let appStatus = {
             config_loaded: false,
             program_loaded: false,
@@ -367,6 +370,7 @@
         }
 
         function activeSide() {
+            if (selectedFrameSide === "left" || selectedFrameSide === "right") return selectedFrameSide;
             if (!dynVars) return "left";
             const a = String(dynVars.active_side || "left").toLowerCase();
             return a === "right" ? "right" : "left";
@@ -761,18 +765,7 @@
                 setStatus("load config first", "danger");
                 return;
             }
-            const txt = String(document.getElementById("inpProgram").value || "").trim();
-            if (!txt) {
-                setStatus("program json is empty", "danger");
-                return;
-            }
-            let program;
-            try {
-                program = JSON.parse(txt);
-            } catch (e) {
-                setStatus(`invalid JSON: ${e}`, "danger");
-                return;
-            }
+            const program = defaultProgram();
             const resp = await api("/api/load_program_json", "POST", { program });
             setStatus(resp.ok ? "program loaded" : (resp.data?.error || "load failed"), resp.ok ? "ok" : "danger");
             await refreshStatus();
@@ -867,9 +860,29 @@
 
         window.addEventListener("resize", renderViz);
 
-        document.getElementById("inpProgram").value = JSON.stringify(defaultProgram(), null, 2);
+        document.getElementById("frameLeft").addEventListener("change", () => {
+            if (!document.getElementById("frameLeft").checked) return;
+            selectedFrameSide = "left";
+            renderViz();
+        });
+        document.getElementById("frameRight").addEventListener("change", () => {
+            if (!document.getElementById("frameRight").checked) return;
+            selectedFrameSide = "right";
+            renderViz();
+        });
+
         applyUiState();
-        refreshStatus();
+        (async () => {
+            const loadResp = await api("/api/load_config", "POST", {});
+            if (loadResp.ok) {
+                setStatus("config loaded", "ok");
+                await refreshStatus();
+                await refreshSimState();
+            } else {
+                setStatus(loadResp.data?.message || "auto-load config failed", "danger");
+                await refreshStatus();
+            }
+        })();
         renderViz();
     </script>
 </body>
