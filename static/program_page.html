@@ -221,6 +221,49 @@
             min-width: 40px;
             text-align: right;
         }
+        .timelineSplit {
+            flex: 1;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 230px minmax(0, 1fr);
+            gap: 10px;
+        }
+        .timelineLeft {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .45);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+        }
+        .timelineRight {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: rgba(15, 18, 32, .35);
+            padding: 10px;
+            min-height: 0;
+        }
+        .timelineLabelRows {
+            display: grid;
+            gap: 6px;
+        }
+        .timelineLabelRow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, .14);
+            border-radius: 9px;
+            padding: 6px 8px;
+            font-size: 12px;
+            background: rgba(255, 255, 255, .03);
+        }
+        .timelineTag {
+            color: var(--muted);
+            font-weight: 700;
+            min-width: 58px;
+        }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
             display: inline-flex;
@@ -251,6 +294,7 @@
 
             .bottom { grid-column: 1; }
             .simSplit { width: 100%; height: 100%; grid-template-columns: 1fr; }
+            .timelineSplit { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -345,11 +389,32 @@
                 <input id="inpFrameNumber" type="number" min="0" step="1" value="0" style="width:110px;" />
                 <span class="muted" id="frameTotalTxt">/ 0</span>
             </div>
-            <div style="flex:1; min-height:0; border:1px solid var(--border); border-radius:12px; background:rgba(15,18,32,.35); padding:10px;">
-                <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
-                <div>Reserved for timeline UI.</div>
-                <div style="margin-top:10px; font-size:12px;">
-                    <span id="timelineSummary">timeline: no compile yet</span>
+            <div class="timelineSplit">
+                <div class="timelineLeft">
+                    <div class="simInfoTitle">Timeline Side</div>
+                    <div class="row tight">
+                        <select id="timelineSideSelect" style="flex:1;">
+                            <option value="left">Left Joints</option>
+                            <option value="right">Right Joints</option>
+                        </select>
+                    </div>
+                    <label class="muted" style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="timelineSync" checked />
+                        sync
+                    </label>
+                    <div class="timelineLabelRows">
+                        <div class="timelineLabelRow"><span class="timelineTag">Hip Front</span><span id="tlJoint1">front_left_hip</span></div>
+                        <div class="timelineLabelRow"><span class="timelineTag">Knee Front</span><span id="tlJoint2">front_left_knee</span></div>
+                        <div class="timelineLabelRow"><span class="timelineTag">Hip Rear</span><span id="tlJoint3">rear_left_hip</span></div>
+                        <div class="timelineLabelRow"><span class="timelineTag">Knee Rear</span><span id="tlJoint4">rear_left_knee</span></div>
+                    </div>
+                </div>
+                <div class="timelineRight">
+                    <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
+                    <div>Reserved for timeline UI.</div>
+                    <div style="margin-top:10px; font-size:12px;">
+                        <span id="timelineSummary">timeline: no compile yet</span>
+                    </div>
                 </div>
             </div>
         </footer>
@@ -367,6 +432,8 @@
         let simTickIdx = 0;
         let playTimer = null;
         let selectedFrameSide = "left";
+        let timelineSide = "left";
+        let timelineSyncEnabled = true;
         let appStatus = {
             config_loaded: false,
             program_loaded: false,
@@ -386,6 +453,23 @@
             const txt = document.getElementById(txtId);
             dot.className = `dot ${ok ? "ok" : "bad"}`;
             txt.textContent = text;
+        }
+
+        function timelineJointKeys(side) {
+            if (side === "right") {
+                return ["front_right_hip", "front_right_knee", "rear_right_hip", "rear_right_knee"];
+            }
+            return ["front_left_hip", "front_left_knee", "rear_left_hip", "rear_left_knee"];
+        }
+
+        function renderTimelineSidePanel() {
+            const keys = timelineJointKeys(timelineSide);
+            document.getElementById("tlJoint1").textContent = keys[0];
+            document.getElementById("tlJoint2").textContent = keys[1];
+            document.getElementById("tlJoint3").textContent = keys[2];
+            document.getElementById("tlJoint4").textContent = keys[3];
+            document.getElementById("timelineSideSelect").value = timelineSide;
+            document.getElementById("timelineSync").checked = timelineSyncEnabled;
         }
 
         function applyUiState() {
@@ -415,6 +499,7 @@
             const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
             document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
+            renderTimelineSidePanel();
         }
 
         async function api(url, method = "GET", body = null) {
@@ -1002,14 +1087,27 @@
         document.getElementById("frameLeft").addEventListener("change", () => {
             if (!document.getElementById("frameLeft").checked) return;
             selectedFrameSide = "left";
+            if (timelineSyncEnabled) timelineSide = selectedFrameSide;
             applyUiState();
             renderViz();
         });
         document.getElementById("frameRight").addEventListener("change", () => {
             if (!document.getElementById("frameRight").checked) return;
             selectedFrameSide = "right";
+            if (timelineSyncEnabled) timelineSide = selectedFrameSide;
             applyUiState();
             renderViz();
+        });
+        document.getElementById("timelineSideSelect").addEventListener("change", () => {
+            timelineSide = document.getElementById("timelineSideSelect").value === "right" ? "right" : "left";
+            renderTimelineSidePanel();
+        });
+        document.getElementById("timelineSync").addEventListener("change", () => {
+            timelineSyncEnabled = !!document.getElementById("timelineSync").checked;
+            if (timelineSyncEnabled) {
+                timelineSide = selectedFrameSide;
+            }
+            renderTimelineSidePanel();
         });
 
         applyUiState();
