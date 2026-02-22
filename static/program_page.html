@@ -156,6 +156,7 @@
             color: var(--muted);
             font-size: 12px;
             max-width: calc(100% - 20px);
+            display: none;
         }
 
         .status { font-size: 12px; color: var(--muted); }
@@ -249,7 +250,7 @@
                 <div class="poseBar" id="poseInfo" aria-live="polite">-</div>
                 <div class="canvasWrap">
                     <canvas id="viz"></canvas>
-                    <div class="canvasOverlay" id="vizOverlay">Load config to begin simulation.</div>
+                    <div class="canvasOverlay" id="vizOverlay"></div>
                 </div>
             </div>
         </section>
