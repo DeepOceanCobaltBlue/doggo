@@ -1,18 +1,20 @@
 {
   "version": 2,
-  "active_side": "right",
+  "active_side": "left",
   "search_step_deg": 1,
   "search_max_iters": 300,
   "left": {
-    "hip_dx_mm": 111.0,
-    "hip_y_mm": 10.0,
-    "thigh_len_front_mm": 69.0,
-    "shin_len_front_mm": 60.0,
-    "thigh_len_rear_mm": 60.0,
-    "shin_len_rear_mm": 60.0,
-    "front_thigh_radius_mm": 24.0,
-    "front_shin_radius_mm": 18.0,
-    "rear_thigh_radius_mm": 19.0,
+    "hip_dx_mm": 140.0,
+    "hip_y_mm": 165.0,
+    "thigh_len_front_mm": 88.0,
+    "shin_len_front_mm": 80.0,
+    "thigh_len_rear_mm": 88.0,
+    "shin_len_rear_mm": 86.0,
+    "front_knee_attach_backoff_mm": 15.0,
+    "rear_knee_attach_backoff_mm": 15.0,
+    "front_thigh_radius_mm": 26.0,
+    "front_shin_radius_mm": 14.0,
+    "rear_thigh_radius_mm": 26.0,
     "rear_shin_radius_mm": 14.0,
     "front_hip_offset_deg": 162.0,
     "front_knee_offset_deg": 2.0,
@@ -20,19 +22,21 @@
     "rear_knee_offset_deg": 2.0
   },
   "right": {
-    "hip_dx_mm": 111.0,
-    "hip_y_mm": 65.0,
-    "thigh_len_front_mm": 71.0,
-    "shin_len_front_mm": 60.0,
-    "thigh_len_rear_mm": 69.0,
-    "shin_len_rear_mm": 58.0,
-    "front_thigh_radius_mm": 25.0,
-    "front_shin_radius_mm": 8.0,
-    "rear_thigh_radius_mm": 19.0,
-    "rear_shin_radius_mm": 12.0,
+    "hip_dx_mm": 140.0,
+    "hip_y_mm": 165.0,
+    "thigh_len_front_mm": 88.0,
+    "shin_len_front_mm": 80.0,
+    "thigh_len_rear_mm": 88.0,
+    "shin_len_rear_mm": 86.0,
+    "front_knee_attach_backoff_mm": 15.0,
+    "rear_knee_attach_backoff_mm": 15.0,
+    "front_thigh_radius_mm": 26.0,
+    "front_shin_radius_mm": 14.0,
+    "rear_thigh_radius_mm": 26.0,
+    "rear_shin_radius_mm": 14.0,
     "front_hip_offset_deg": 262.0,
     "front_knee_offset_deg": 141.0,
-    "rear_hip_offset_deg": 262.0,
+    "rear_hip_offset_deg": 259.0,
     "rear_knee_offset_deg": 141.0
   },
   "calibration_profiles": {
@@ -41,16 +45,12 @@
       "measurement_mode": "hip_line_relative_deg",
       "pairs": [
         {
-          "commanded_deg": 163.0,
-          "actual_deg": 90.0
+          "commanded_deg": 100.0,
+          "actual_deg": 155.0
         },
         {
-          "commanded_deg": 135.0,
-          "actual_deg": 135.0
-        },
-        {
-          "commanded_deg": 58.0,
-          "actual_deg": 180.0
+          "commanded_deg": 120.0,
+          "actual_deg": 143.0
         }
       ]
     },
@@ -59,16 +59,20 @@
       "measurement_mode": "hip_line_relative_deg",
       "pairs": [
         {
-          "commanded_deg": 163.0,
-          "actual_deg": 180.0
+          "commanded_deg": 120.0,
+          "actual_deg": 143.0
         },
         {
-          "commanded_deg": 135.0,
-          "actual_deg": 135.0
+          "commanded_deg": 100.0,
+          "actual_deg": 155.0
         },
         {
-          "commanded_deg": 58.0,
-          "actual_deg": 90.0
+          "commanded_deg": 170.0,
+          "actual_deg": 111.0
+        },
+        {
+          "commanded_deg": 190.0,
+          "actual_deg": 97.0
         }
       ]
     },
@@ -91,12 +95,24 @@
       "measurement_mode": "knee_relative_deg",
       "pairs": [
         {
-          "commanded_deg": 163.0,
-          "actual_deg": 90.0
+          "commanded_deg": 40.0,
+          "actual_deg": 174.0
         },
         {
-          "commanded_deg": 30.0,
-          "actual_deg": 180.0
+          "commanded_deg": 70.0,
+          "actual_deg": 149.0
+        },
+        {
+          "commanded_deg": 100.0,
+          "actual_deg": 130.0
+        },
+        {
+          "commanded_deg": 135.0,
+          "actual_deg": 107.0
+        },
+        {
+          "commanded_deg": 180.0,
+          "actual_deg": 79.0
         }
       ]
     },
