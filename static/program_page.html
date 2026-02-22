@@ -149,6 +149,34 @@
         .status { font-size: 12px; color: var(--muted); }
         .ok { color: var(--ok); }
         .danger { color: var(--danger); }
+        .poseBar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            padding: 8px 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, .14);
+            background: rgba(15, 18, 32, .72);
+            font-size: 12px;
+        }
+        .poseChip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, .16);
+            background: rgba(255, 255, 255, .04);
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .poseChipLabel {
+            color: var(--muted);
+            font-weight: 600;
+            letter-spacing: normal;
+        }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
             display: inline-flex;
@@ -213,17 +241,25 @@
                         Right Frame
                     </label>
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
-                        <input id="inpSparse" type="checkbox" checked /> sparse targets
+                        <input id="inpSparse" type="checkbox" checked />
+                        <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
                     </label>
                     <div style="width:180px;">
-                        <input id="inpMaxDelta" type="number" min="1" step="1" placeholder="max_delta_per_tick" />
+                        <input
+                            id="inpMaxDelta"
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="max_delta_per_tick"
+                            title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
+                        />
                     </div>
                     <div class="status" id="statusText">status: idle</div>
                 </div>
             </div>
 
             <div class="mainBody">
-                <div class="muted" id="poseInfo">-</div>
+                <div class="poseBar" id="poseInfo" aria-live="polite">-</div>
                 <div class="canvasWrap">
                     <canvas id="viz"></canvas>
                     <div class="canvasOverlay" id="vizOverlay">Load config to begin simulation.</div>
@@ -675,10 +711,13 @@
             drawJoint(Hr, 0.9);
             drawJoint(Kr, 0.8);
 
-            poseInfo.textContent =
-                `${g.side.toUpperCase()} | sim tick=${simTickIdx} | ` +
-                `FH=${Math.round(g.angles.a_fh)} FK=${Math.round(g.angles.a_fk)} ` +
-                `RH=${Math.round(g.angles.a_rh)} RK=${Math.round(g.angles.a_rk)}`;
+            poseInfo.innerHTML =
+                `<span class="poseChip"><span class="poseChipLabel">Frame</span>${g.side.toUpperCase()}</span>` +
+                `<span class="poseChip"><span class="poseChipLabel">Tick</span>${simTickIdx}</span>` +
+                `<span class="poseChip"><span class="poseChipLabel">FH</span>${Math.round(g.angles.a_fh)}</span>` +
+                `<span class="poseChip"><span class="poseChipLabel">FK</span>${Math.round(g.angles.a_fk)}</span>` +
+                `<span class="poseChip"><span class="poseChipLabel">RH</span>${Math.round(g.angles.a_rh)}</span>` +
+                `<span class="poseChip"><span class="poseChipLabel">RK</span>${Math.round(g.angles.a_rk)}</span>`;
 
             const sideStatus = collisionStatus?.test?.[g.side] || null;
             let collisionTxt = "Collision: unknown";
