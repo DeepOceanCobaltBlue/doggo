@@ -297,8 +297,11 @@
             border-right: 1px solid rgba(255, 255, 255, .12);
             background: rgba(255, 255, 255, .02);
             display: grid;
-            grid-template-rows: repeat(4, 1fr);
+            grid-template-rows: 28px repeat(4, 1fr);
             min-height: 0;
+        }
+        .timelineLabelHead {
+            border-bottom: 1px solid rgba(255, 255, 255, .08);
         }
         .timelineLabelCell {
             display: flex;
@@ -326,7 +329,39 @@
             position: relative;
             min-height: 100%;
             display: grid;
-            grid-template-rows: repeat(4, 1fr);
+            grid-template-rows: 28px repeat(4, 1fr);
+        }
+        .timelineRuler {
+            position: relative;
+            border-bottom: 1px solid rgba(255, 255, 255, .08);
+            background-image:
+                repeating-linear-gradient(
+                    to right,
+                    rgba(255, 255, 255, .30) 0px,
+                    rgba(255, 255, 255, .30) 1px,
+                    transparent 1px,
+                    transparent 16px
+                ),
+                repeating-linear-gradient(
+                    to right,
+                    rgba(255, 255, 255, .55) 0px,
+                    rgba(255, 255, 255, .55) 1px,
+                    transparent 1px,
+                    transparent 80px
+                );
+        }
+        .timelineRulerLabels {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .timelineRulerLabel {
+            position: absolute;
+            top: 4px;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: var(--muted);
         }
         .timelineTrackRow {
             border-bottom: 1px solid rgba(255, 255, 255, .08);
@@ -493,6 +528,7 @@
                 </div>
                 <div class="timelineBody">
                     <div class="timelineLabels">
+                        <div class="timelineLabelHead"></div>
                         <div class="timelineLabelCell"><span class="timelineTag">Front Hip</span></div>
                         <div class="timelineLabelCell"><span class="timelineTag">Front Knee</span></div>
                         <div class="timelineLabelCell"><span class="timelineTag">Rear Hip</span></div>
@@ -500,6 +536,9 @@
                     </div>
                     <div class="timelineTracksViewport" id="timelineTracksViewport">
                         <div class="timelineTracksInner" id="timelineTracksInner">
+                            <div class="timelineRuler">
+                                <div class="timelineRulerLabels" id="timelineRulerLabels"></div>
+                            </div>
                             <div class="timelineTrackRow"></div>
                             <div class="timelineTrackRow"></div>
                             <div class="timelineTrackRow"></div>
@@ -507,9 +546,6 @@
                             <div class="timelinePlayhead" id="timelinePlayhead"></div>
                         </div>
                     </div>
-                </div>
-                <div class="muted" style="font-size:12px;">
-                    <span id="timelineSummary">timeline: no compile yet</span>
                 </div>
             </div>
         </footer>
@@ -558,10 +594,24 @@
             const viewport = document.getElementById("timelineTracksViewport");
             const inner = document.getElementById("timelineTracksInner");
             const playhead = document.getElementById("timelinePlayhead");
+            const rulerLabels = document.getElementById("timelineRulerLabels");
             const tickCountRaw = Number(appStatus.compiled_summary?.num_ticks || 0);
             const tickCount = Math.max(1, tickCountRaw);
             const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
             inner.style.width = `${widthPx}px`;
+
+            const lastRendered = Number(rulerLabels.dataset.tickCount || 0);
+            if (lastRendered !== tickCount) {
+                rulerLabels.innerHTML = "";
+                for (let i = 0; i < tickCount; i += 5) {
+                    const el = document.createElement("span");
+                    el.className = "timelineRulerLabel";
+                    el.style.left = `${i * TIMELINE_STEP_PX}px`;
+                    el.textContent = String(i);
+                    rulerLabels.appendChild(el);
+                }
+                rulerLabels.dataset.tickCount = String(tickCount);
+            }
 
             const clampedTick = Math.max(0, Math.min(tickCount - 1, Number(simTickIdx || 0)));
             const playheadX = clampedTick * TIMELINE_STEP_PX;
@@ -597,10 +647,6 @@
             document.getElementById("inpFrameNumber").disabled = !hasCompiled;
 
             const summary = appStatus.compiled_summary;
-            const timelineTxt = summary
-                ? `timeline: ${summary.num_ticks} ticks @ ${summary.tick_ms}ms`
-                : "timeline: no compile yet";
-            document.getElementById("timelineSummary").textContent = timelineTxt;
             const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
             document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
