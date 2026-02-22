@@ -59,6 +59,9 @@
             border: 1px dashed var(--border);
             padding: 16px;
             color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
         .mainHeader {
@@ -75,6 +78,7 @@
             gap: 10px;
             flex-wrap: wrap;
         }
+        .row.tight { gap: 8px; }
 
         .title { font-size: 18px; font-weight: 900; margin: 0; }
         .muted { color: var(--muted); font-size: 13px; }
@@ -177,6 +181,18 @@
             font-weight: 600;
             letter-spacing: normal;
         }
+        .frameReadout {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, .18);
+            background: rgba(77, 163, 255, .12);
+            color: var(--text);
+            font-size: 12px;
+            font-weight: 700;
+        }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
             display: inline-flex;
@@ -227,9 +243,9 @@
                     <button class="primary" id="btnLoadConfig">Load Config</button>
                     <button class="primary" id="btnLoadProgram">Load Program</button>
                     <button class="primary" id="btnCompile">Compile</button>
-                    <button id="btnPrevTick">Prev Tick</button>
-                    <button id="btnPlay">Play</button>
-                    <button id="btnNextTick">Next Tick</button>
+                </div>
+                <div class="row">
+                    <div class="frameReadout">Selected Frame: <span id="selectedFrameTxt">LEFT</span></div>
                 </div>
                 <div class="row">
                     <label class="muted" style="display:flex;align-items:center;gap:6px;">
@@ -278,10 +294,23 @@
         </aside>
 
         <footer class="bottom">
-            <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
-            <div>Reserved for timeline UI.</div>
-            <div style="margin-top:10px; font-size:12px;">
-                <span id="timelineSummary">timeline: no compile yet</span>
+            <div class="row tight" style="padding:8px 10px; border:1px solid var(--border); border-radius:12px; background:rgba(15,18,32,.5);">
+                <button id="btnFramePrev">Prev Frame</button>
+                <button id="btnFrameMinus10">-10 Frames</button>
+                <button id="btnFramePlus10">+10 Frames</button>
+                <button id="btnFrameNext">Next Frame</button>
+                <button id="btnFramePlay">Play</button>
+                <button id="btnFramePause">Pause</button>
+                <label class="muted" for="inpFrameNumber">Frame (tick)</label>
+                <input id="inpFrameNumber" type="number" min="0" step="1" value="0" style="width:110px;" />
+                <span class="muted" id="frameTotalTxt">/ 0</span>
+            </div>
+            <div style="flex:1; min-height:0; border:1px solid var(--border); border-radius:12px; background:rgba(15,18,32,.35); padding:10px;">
+                <div style="font-weight:900; margin-bottom:8px;">Bottom Control Bar</div>
+                <div>Reserved for timeline UI.</div>
+                <div style="margin-top:10px; font-size:12px;">
+                    <span id="timelineSummary">timeline: no compile yet</span>
+                </div>
             </div>
         </footer>
     </div>
@@ -330,15 +359,23 @@
 
             document.getElementById("btnLoadProgram").disabled = !hasConfig;
             document.getElementById("btnCompile").disabled = !(hasConfig && hasProgram);
-            document.getElementById("btnPrevTick").disabled = !hasCompiled;
-            document.getElementById("btnPlay").disabled = !hasCompiled;
-            document.getElementById("btnNextTick").disabled = !hasCompiled;
+            document.getElementById("btnFramePrev").disabled = !hasCompiled;
+            document.getElementById("btnFrameMinus10").disabled = !hasCompiled;
+            document.getElementById("btnFramePlus10").disabled = !hasCompiled;
+            document.getElementById("btnFrameNext").disabled = !hasCompiled;
+            document.getElementById("btnFramePlay").disabled = !hasCompiled;
+            document.getElementById("btnFramePause").disabled = !hasCompiled;
+            document.getElementById("inpFrameNumber").disabled = !hasCompiled;
 
             const summary = appStatus.compiled_summary;
             const timelineTxt = summary
                 ? `timeline: ${summary.num_ticks} ticks @ ${summary.tick_ms}ms`
                 : "timeline: no compile yet";
             document.getElementById("timelineSummary").textContent = timelineTxt;
+            const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
+            document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
+            document.getElementById("inpFrameNumber").value = String(simTickIdx);
+            document.getElementById("selectedFrameTxt").textContent = selectedFrameSide.toUpperCase();
         }
 
         async function api(url, method = "GET", body = null) {
@@ -712,8 +749,6 @@
             drawJoint(Kr, 0.8);
 
             poseInfo.innerHTML =
-                `<span class="poseChip"><span class="poseChipLabel">Frame</span>${g.side.toUpperCase()}</span>` +
-                `<span class="poseChip"><span class="poseChipLabel">Tick</span>${simTickIdx}</span>` +
                 `<span class="poseChip"><span class="poseChipLabel">FH</span>${Math.round(g.angles.a_fh)}</span>` +
                 `<span class="poseChip"><span class="poseChipLabel">FK</span>${Math.round(g.angles.a_fk)}</span>` +
                 `<span class="poseChip"><span class="poseChipLabel">RH</span>${Math.round(g.angles.a_rh)}</span>` +
@@ -770,6 +805,7 @@
             appStatus.sim_tick_idx = simTickIdx;
             simAngles = resp.data.sim_angles || simAngles;
             collisionStatus = { ...(collisionStatus || {}), ...(resp.data.collision_status || {}) };
+            applyUiState();
             if (Number.isFinite(requested) && requested !== simTickIdx) {
                 setStatus(`seek clamped to tick ${simTickIdx}`, "muted");
             }
@@ -844,7 +880,7 @@
             if (playTimer !== null) {
                 clearInterval(playTimer);
                 playTimer = null;
-                document.getElementById("btnPlay").textContent = "Play";
+                document.getElementById("btnFramePlay").textContent = "Play";
             }
         }
 
@@ -856,7 +892,7 @@
             if (playTimer !== null) return;
 
             const tickMs = Math.max(1, Number(previewTickMs || 20));
-            document.getElementById("btnPlay").textContent = "Pause";
+            document.getElementById("btnFramePlay").textContent = "Playing...";
             playTimer = setInterval(async () => {
                 if (!previewTicks.length) return;
                 const next = simTickIdx + 1;
@@ -882,19 +918,40 @@
         document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
         document.getElementById("btnCompile").addEventListener("click", compileProgram);
 
-        document.getElementById("btnPrevTick").addEventListener("click", async () => {
+        document.getElementById("btnFramePrev").addEventListener("click", async () => {
             stopPlayback();
             await seekTick(Math.max(0, simTickIdx - 1));
         });
 
-        document.getElementById("btnNextTick").addEventListener("click", async () => {
+        document.getElementById("btnFrameNext").addEventListener("click", async () => {
             stopPlayback();
             await seekTick(simTickIdx + 1);
         });
 
-        document.getElementById("btnPlay").addEventListener("click", () => {
-            if (playTimer !== null) stopPlayback();
-            else startPlayback();
+        document.getElementById("btnFrameMinus10").addEventListener("click", async () => {
+            stopPlayback();
+            await seekTick(Math.max(0, simTickIdx - 10));
+        });
+        document.getElementById("btnFramePlus10").addEventListener("click", async () => {
+            stopPlayback();
+            await seekTick(simTickIdx + 10);
+        });
+        document.getElementById("btnFramePlay").addEventListener("click", () => {
+            startPlayback();
+        });
+        document.getElementById("btnFramePause").addEventListener("click", () => {
+            stopPlayback();
+        });
+        document.getElementById("inpFrameNumber").addEventListener("change", async () => {
+            const raw = document.getElementById("inpFrameNumber").value;
+            const n = Number.parseInt(String(raw).trim(), 10);
+            if (!Number.isFinite(n)) {
+                setStatus("frame number must be an integer", "danger");
+                applyUiState();
+                return;
+            }
+            stopPlayback();
+            await seekTick(n);
         });
 
         window.addEventListener("resize", renderViz);
@@ -902,11 +959,13 @@
         document.getElementById("frameLeft").addEventListener("change", () => {
             if (!document.getElementById("frameLeft").checked) return;
             selectedFrameSide = "left";
+            applyUiState();
             renderViz();
         });
         document.getElementById("frameRight").addEventListener("change", () => {
             if (!document.getElementById("frameRight").checked) return;
             selectedFrameSide = "right";
+            applyUiState();
             renderViz();
         });
 
