@@ -357,11 +357,12 @@
             inset: 0;
             z-index: 2;
             pointer-events: none;
+            overflow: visible;
         }
         .timelineRulerLabel {
             position: absolute;
-            top: 50%;
-            transform: translate(-50%, -50%);
+            top: 3px;
+            transform: translateX(-50%);
             font-size: 11px;
             color: #f1f4ff;
             text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
@@ -370,7 +371,7 @@
             line-height: 1;
         }
         .timelineRulerLabel.first {
-            transform: translateY(-50%);
+            transform: none;
         }
         .timelineTrackRow {
             border-bottom: 1px solid rgba(255, 255, 255, .08);
@@ -617,15 +618,17 @@
             const playhead = document.getElementById("timelinePlayhead");
             const rulerLabels = document.getElementById("timelineRulerLabels");
             const tickCountRaw = Number(appStatus.compiled_summary?.num_ticks || 0);
-            const tickCount = Math.max(1, tickCountRaw);
+            const visibleTickCount = Math.max(20, Math.floor(Math.max(0, (viewport.clientWidth || 480) - 20) / TIMELINE_STEP_PX) + 1);
+            const tickCount = Math.max(1, tickCountRaw || visibleTickCount);
             const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
             inner.style.width = `${widthPx}px`;
             rulerLabels.style.width = `${widthPx}px`;
 
-            const lastRendered = Number(rulerLabels.dataset.tickCount || 0);
-            if (lastRendered !== tickCount) {
+            const lastRenderedWidth = Number(rulerLabels.dataset.widthPx || 0);
+            if (lastRenderedWidth !== widthPx) {
                 rulerLabels.innerHTML = "";
-                for (let i = 0; i < tickCount; i += 5) {
+                const maxTickForWidth = Math.floor(Math.max(0, widthPx - 1) / TIMELINE_STEP_PX);
+                for (let i = 0; i <= maxTickForWidth; i += 5) {
                     const el = document.createElement("span");
                     el.className = "timelineRulerLabel";
                     if (i === 0) {
@@ -637,7 +640,7 @@
                     el.textContent = String(i);
                     rulerLabels.appendChild(el);
                 }
-                rulerLabels.dataset.tickCount = String(tickCount);
+                rulerLabels.dataset.widthPx = String(widthPx);
             }
 
             const clampedTick = Math.max(0, Math.min(tickCount - 1, Number(simTickIdx || 0)));
