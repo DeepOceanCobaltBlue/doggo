@@ -358,10 +358,15 @@
         }
         .timelineRulerLabel {
             position: absolute;
-            top: 4px;
+            top: 3px;
             transform: translateX(-50%);
-            font-size: 10px;
-            color: var(--muted);
+            font-size: 11px;
+            color: #d9deef;
+            text-shadow: 0 1px 0 rgba(0, 0, 0, .55);
+            white-space: nowrap;
+        }
+        .timelineRulerLabel.first {
+            transform: none;
         }
         .timelineTrackRow {
             border-bottom: 1px solid rgba(255, 255, 255, .08);
@@ -385,6 +390,18 @@
             background: var(--accent);
             box-shadow: 0 0 0 1px rgba(77, 163, 255, .35);
             pointer-events: none;
+        }
+        .timelinePlayhead::before {
+            content: "";
+            position: absolute;
+            top: 2px;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            box-shadow: 0 0 0 2px rgba(15, 18, 32, .9);
         }
         .pillbar { display: flex; gap: 8px; flex-wrap: wrap; }
         .badge {
@@ -606,7 +623,12 @@
                 for (let i = 0; i < tickCount; i += 5) {
                     const el = document.createElement("span");
                     el.className = "timelineRulerLabel";
-                    el.style.left = `${i * TIMELINE_STEP_PX}px`;
+                    if (i === 0) {
+                        el.classList.add("first");
+                        el.style.left = "4px";
+                    } else {
+                        el.style.left = `${i * TIMELINE_STEP_PX}px`;
+                    }
                     el.textContent = String(i);
                     rulerLabels.appendChild(el);
                 }
