@@ -2017,7 +2017,15 @@
                 const metric = geoMetricFromGeometry(g, metricKey);
                 if (!Number.isFinite(metric)) continue;
                 const err = Math.abs(metric - targetDeg);
-                candidates.push({ off, err });
+                let thighBelowHipLine = false;
+                if (g && g.anchors) {
+                    if (metricKey === "hip_front") {
+                        thighBelowHipLine = Number(g.anchors.KfTip?.y) < Number(g.anchors.Hf?.y);
+                    } else if (metricKey === "hip_rear") {
+                        thighBelowHipLine = Number(g.anchors.KrTip?.y) < Number(g.anchors.Hr?.y);
+                    }
+                }
+                candidates.push({ off, err, thighBelowHipLine });
                 if (err < bestErr) bestErr = err;
             }
             s[offsetKey] = original;
@@ -2026,20 +2034,27 @@
                 return { ok: false, error: "Unable to solve offset for this target." };
             }
 
-            // Prefer the alternate branch: among near-best solutions, pick the one farthest
-            // from current offset. This intentionally flips branch selection behavior.
+            // Prefer thigh below the hip line for hip-relative solves.
             const nearTol = 0.25;
             const nearBest = candidates.filter(c => c.err <= bestErr + nearTol);
             if (!nearBest.length) {
                 return { ok: false, error: "Unable to choose a valid offset solution." };
             }
-            nearBest.sort((a, b) => {
+
+            let pool = nearBest;
+            if (metricKey === "hip_front" || metricKey === "hip_rear") {
+                const below = nearBest.filter(c => c.thighBelowHipLine);
+                if (below.length) pool = below;
+            }
+
+            pool.sort((a, b) => {
+                if (a.err !== b.err) return a.err - b.err;
                 const da = Math.abs(a.off - original);
                 const db = Math.abs(b.off - original);
-                if (db !== da) return db - da;
+                if (da !== db) return da - db;
                 return a.off - b.off;
             });
-            const picked = nearBest[0];
+            const picked = pool[0];
             return { ok: true, offset: picked.off, errorDeg: picked.err };
         }
 
