@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,10 @@ from app_shared.program_common import (
     validate_location_order,
 )
 from motion_core import (
+    CommandRunner,
+    ProgramRuntimeEngine,
     SafetyPipeline,
+    apply_global_max_delta_per_tick,
     build_config_state_view,
     clamp_int,
     compile_timeline,
@@ -70,12 +74,19 @@ class ProgramState:
         self.config: Optional[ProgramConfig] = None
         self.program_spec: Optional[Any] = None
         self.program_name: Optional[str] = None
+        self.compiled_base_timeline: Optional[Any] = None
         self.compiled_timeline: Optional[Any] = None
         self.compiled_dense_states: List[Dict[str, int]] = []
 
         self.normal_angles: Dict[str, int] = {}
         self.sim_angles: Dict[str, int] = {}
         self.sim_tick_idx: int = 0
+        self.sim_runtime_running: bool = False
+        self.sim_runtime_reason: Optional[str] = None
+        self.sim_runtime_loop: bool = True
+        self._runtime_thread: Optional[threading.Thread] = None
+        self._runtime_engine: Optional[ProgramRuntimeEngine] = None
+        self._runtime_stop_event = threading.Event()
 
         self.timeline_events: List[TimelineEvent] = []
         self._next_event_id: int = 1
@@ -191,6 +202,8 @@ class ProgramState:
         with self._lock:
             if self.config is None:
                 return False, "Config not loaded"
+            if self.sim_runtime_running:
+                return False, "Playback is running"
             locs = list(self.config.position_order)
 
         ok, spec, msg = normalize_and_validate_program_spec(raw_program, location_keys=locs)
@@ -200,9 +213,11 @@ class ProgramState:
         with self._lock:
             self.program_spec = spec
             self.program_name = spec.program_id
+            self.compiled_base_timeline = None
             self.compiled_timeline = None
             self.compiled_dense_states = []
             self.sim_tick_idx = 0
+            self.sim_runtime_reason = None
             return True, "ok"
 
     def _build_dense_states(self, timeline: Any, start_state: Dict[str, int]) -> List[Dict[str, int]]:
@@ -213,6 +228,41 @@ class ProgramState:
                 cur[key] = int(value)
             dense_states.append(dict(cur))
         return dense_states
+
+    def _set_playback_timeline(self, timeline: Any, *, reset_sim: bool = True) -> None:
+        self.compiled_timeline = timeline
+        self.compiled_dense_states = self._build_dense_states(timeline, self.normal_angles)
+        if reset_sim:
+            self.sim_tick_idx = 0
+            if self.compiled_dense_states:
+                self.sim_angles = dict(self.compiled_dense_states[0])
+
+    def apply_gait_profile(
+        self,
+        *,
+        max_delta_per_tick: int,
+        ease_in_frames: int = 2,
+        ease_out_frames: int = 2,
+    ) -> Tuple[bool, str]:
+        with self._lock:
+            if self.sim_runtime_running:
+                return False, "Playback is running"
+            if self.compiled_base_timeline is None:
+                return False, "No compiled base timeline"
+            base = self.compiled_base_timeline
+            if max_delta_per_tick < 1:
+                return False, "max_delta_per_tick must be >= 1"
+            if ease_in_frames < 1 or ease_out_frames < 1:
+                return False, "ease_in_frames/ease_out_frames must be >= 1"
+
+            out = apply_global_max_delta_per_tick(
+                base,
+                int(max_delta_per_tick),
+                ease_in_frames=int(ease_in_frames),
+                ease_out_frames=int(ease_out_frames),
+            )
+            self._set_playback_timeline(out, reset_sim=True)
+            return True, "ok"
 
     def compile_program(
         self,
@@ -227,23 +277,136 @@ class ProgramState:
                 return False, "Config not loaded"
             if self.program_spec is None:
                 return False, "Program not loaded"
+            if self.sim_runtime_running:
+                return False, "Playback is running"
 
-            timeline = compile_timeline(
+            base_timeline = compile_timeline(
                 self.program_spec,
                 location_keys=self.config.position_order,
                 start_state=self.normal_angles,
                 sparse_targets=bool(sparse_targets),
-                max_delta_per_tick=max_delta_per_tick,
+                max_delta_per_tick=None,
                 apply_slew_limits=True,
                 gait_ease_in_frames=int(gait_ease_in_frames),
                 gait_ease_out_frames=int(gait_ease_out_frames),
             )
-            self.compiled_timeline = timeline
-            self.compiled_dense_states = self._build_dense_states(timeline, self.normal_angles)
-            self.sim_tick_idx = 0
-            if self.compiled_dense_states:
-                self.sim_angles = dict(self.compiled_dense_states[0])
+            self.compiled_base_timeline = base_timeline
+            self._set_playback_timeline(base_timeline, reset_sim=True)
+            self.sim_runtime_reason = None
+
+        if max_delta_per_tick is not None:
+            return self.apply_gait_profile(
+                max_delta_per_tick=int(max_delta_per_tick),
+                ease_in_frames=int(gait_ease_in_frames),
+                ease_out_frames=int(gait_ease_out_frames),
+            )
+        return True, "ok"
+
+    def _runtime_tick_callback(self, tick: int, _t_ms: int, state: Dict[str, int]) -> None:
+        with self._lock:
+            self.sim_tick_idx = max(0, int(tick))
+            self.sim_angles = {k: clamp_int(int(v), 0, 270) for k, v in state.items()}
+
+    def _run_sim_loop(self, *, loop: bool) -> None:
+        while True:
+            with self._lock:
+                if self.config is None or self.compiled_timeline is None:
+                    self.sim_runtime_running = False
+                    self.sim_runtime_reason = "missing_config_or_timeline"
+                    self._runtime_engine = None
+                    return
+                cfg = self.config
+                timeline = self.compiled_timeline
+                start_state = (
+                    dict(self.compiled_dense_states[0])
+                    if self.compiled_dense_states
+                    else {k: 135 for k in cfg.position_order}
+                )
+
+            safety = SafetyPipeline(dynamic_limits=cfg.dynamic_limits, servo_limits_by_location=cfg.servo_limits_by_location)
+            runner = CommandRunner(safety)
+            engine = ProgramRuntimeEngine(runner)
+            with self._lock:
+                self._runtime_engine = engine
+                self.sim_tick_idx = 0
+                self.sim_angles = dict(start_state)
+
+            result = engine.run(
+                timeline,
+                state_name="test",
+                output_target="sim",
+                dynamic_limits=cfg.dynamic_limits,
+                servo_limits_by_location=cfg.servo_limits_by_location,
+                channel_by_location={k: None for k in cfg.position_order},
+                hardware=None,
+                state_by_name={"test": start_state},
+                stop_on_clamp=False,
+                realtime=True,
+                stop_check=lambda: self._runtime_stop_event.is_set(),
+                tick_callback=self._runtime_tick_callback,
+            )
+
+            with self._lock:
+                self.sim_runtime_reason = str(result.reason)
+                final_test = result.final_state_by_name.get("test", {})
+                if final_test:
+                    self.sim_angles = {k: clamp_int(int(v), 0, 270) for k, v in final_test.items()}
+                if self.compiled_dense_states:
+                    max_idx = len(self.compiled_dense_states) - 1
+                    self.sim_tick_idx = max(0, min(int(self.sim_tick_idx), max_idx))
+                self._runtime_engine = None
+
+            if self._runtime_stop_event.is_set():
+                break
+            if not loop:
+                break
+            if result.reason != "completed":
+                break
+
+        with self._lock:
+            self.sim_runtime_running = False
+            self._runtime_engine = None
+
+    def start_sim_playback(self, *, loop: bool = True) -> Tuple[bool, str]:
+        with self._lock:
+            if self.config is None:
+                return False, "Config not loaded"
+            if self.compiled_timeline is None or not self.compiled_dense_states:
+                return False, "Program not compiled"
+            if self.sim_runtime_running:
+                return False, "Playback already running"
+            self.sim_runtime_running = True
+            self.sim_runtime_reason = None
+            self.sim_runtime_loop = bool(loop)
+            self._runtime_stop_event.clear()
+            self._runtime_thread = threading.Thread(
+                target=self._run_sim_loop,
+                kwargs={"loop": bool(loop)},
+                name="program_app_sim_loop",
+                daemon=True,
+            )
+            self._runtime_thread.start()
             return True, "ok"
+
+    def stop_sim_playback(self) -> Tuple[bool, str]:
+        with self._lock:
+            was_running = bool(self.sim_runtime_running)
+            self._runtime_stop_event.set()
+            if self._runtime_engine is not None:
+                self._runtime_engine.request_stop()
+            if not was_running:
+                return True, "ok"
+            return True, "stopping"
+
+    def sim_playback_status(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "ok": True,
+                "running": bool(self.sim_runtime_running),
+                "loop": bool(self.sim_runtime_loop),
+                "reason": self.sim_runtime_reason,
+                "tick": int(self.sim_tick_idx),
+            }
 
     def collision_snapshot_for_state(self, state_angles: Dict[str, int]) -> Dict[str, Any]:
         with self._lock:
@@ -279,6 +442,8 @@ class ProgramState:
 
     def seek_tick(self, tick: int) -> Tuple[bool, Dict[str, Any], int]:
         with self._lock:
+            if self.sim_runtime_running:
+                return False, {"ok": False, "error": "Playback is running"}, 409
             if self.compiled_timeline is None or not self.compiled_dense_states:
                 return False, {"ok": False, "error": "Program not compiled"}, 400
 
@@ -323,9 +488,13 @@ class ProgramState:
                 "config_loaded": self.config is not None,
                 "program_loaded": self.program_spec is not None,
                 "program_name": self.program_name,
+                "compiled_base_loaded": self.compiled_base_timeline is not None,
+                "compiled_base_summary": summarize_timeline(self.compiled_base_timeline) if self.compiled_base_timeline is not None else None,
                 "compiled_loaded": self.compiled_timeline is not None,
                 "compiled_summary": summarize_timeline(self.compiled_timeline) if self.compiled_timeline is not None else None,
                 "sim_tick_idx": int(self.sim_tick_idx),
+                "sim_runtime_running": bool(self.sim_runtime_running),
+                "sim_runtime_reason": self.sim_runtime_reason,
                 "timeline_event_count": len(self.timeline_events),
             }
 
@@ -574,6 +743,29 @@ def api_sim_seek():
     return jsonify(payload), code
 
 
+@app.get("/api/sim_play/status")
+def api_sim_play_status():
+    return jsonify(state.sim_playback_status())
+
+
+@app.post("/api/sim_play/start")
+def api_sim_play_start():
+    data = request.get_json(force=True) if request.data else {}
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    loop = bool(data.get("loop", True))
+    ok, msg = state.start_sim_playback(loop=loop)
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
+
+
+@app.post("/api/sim_play/stop")
+def api_sim_play_stop():
+    ok, msg = state.stop_sim_playback()
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
+
+
 @app.get("/api/program_preview")
 def api_program_preview():
     try:
@@ -651,6 +843,42 @@ def api_compile_program():
     )
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
+
+
+@app.post("/api/gait/apply")
+def api_gait_apply():
+    data = request.get_json(force=True) if request.data else {}
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    max_delta_raw = data.get("max_delta_per_tick", None)
+    if max_delta_raw is None:
+        return jsonify({"ok": False, "error": "max_delta_per_tick is required"}), 400
+    try:
+        max_delta = int(max_delta_raw)
+    except Exception:
+        return jsonify({"ok": False, "error": "max_delta_per_tick must be an integer"}), 400
+    if max_delta < 1:
+        return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
+
+    try:
+        ease_in_frames = int(data.get("ease_in_frames", 2))
+        ease_out_frames = int(data.get("ease_out_frames", 2))
+    except Exception:
+        return jsonify({"ok": False, "error": "ease_in_frames/ease_out_frames must be integers"}), 400
+    if ease_in_frames < 1:
+        return jsonify({"ok": False, "error": "ease_in_frames must be >= 1"}), 400
+    if ease_out_frames < 1:
+        return jsonify({"ok": False, "error": "ease_out_frames must be >= 1"}), 400
+
+    ok, msg = state.apply_gait_profile(
+        max_delta_per_tick=max_delta,
+        ease_in_frames=ease_in_frames,
+        ease_out_frames=ease_out_frames,
+    )
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
 
 
 @app.post("/api/timeline/compile")

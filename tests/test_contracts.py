@@ -4,6 +4,7 @@ import json
 import importlib
 import math
 import sys
+import time
 import types
 import unittest
 from pathlib import Path
@@ -654,14 +655,19 @@ class ProgramApiContracts(unittest.TestCase):
 
     def setUp(self) -> None:
         state = self.program_app.state
+        state.stop_sim_playback()
         with state._lock:
             state.timeline_events = []
             state._next_event_id = 1
             state.program_spec = None
             state.program_name = None
+            state.compiled_base_timeline = None
             state.compiled_timeline = None
             state.compiled_dense_states = []
             state.sim_tick_idx = 0
+            state.sim_runtime_running = False
+            state.sim_runtime_reason = None
+            state._runtime_stop_event.set()
 
     def test_program_flow_compile_preview_and_sim_seek(self) -> None:
         client = self.program_app.app.test_client()
@@ -709,6 +715,53 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(seek.status_code, 200)
         self.assertTrue(seek.get_json()["ok"])
 
+    def test_program_gait_apply_and_sim_playback_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        payload = {
+            "program": {
+                "program_id": "program_runtime",
+                "tick_ms": 20,
+                "steps": [
+                    {
+                        "step_id": "lift",
+                        "commands": [
+                            {"location": "rear_left_hip", "target_angle": 170, "duration_ms": 200},
+                        ],
+                    }
+                ],
+            }
+        }
+        load = client.post("/api/load_program_json", json=payload)
+        self.assertEqual(load.status_code, 200)
+        self.assertTrue(load.get_json()["ok"])
+
+        comp = client.post("/api/compile_program", json={"sparse_targets": True})
+        self.assertEqual(comp.status_code, 200)
+        self.assertTrue(comp.get_json()["ok"])
+
+        gait = client.post("/api/gait/apply", json={"max_delta_per_tick": 5, "ease_in_frames": 2, "ease_out_frames": 2})
+        self.assertEqual(gait.status_code, 200)
+        self.assertTrue(gait.get_json()["ok"])
+
+        start = client.post("/api/sim_play/start", json={"loop": True})
+        self.assertEqual(start.status_code, 200)
+        self.assertTrue(start.get_json()["ok"])
+
+        time.sleep(0.06)
+        st = client.get("/api/sim_play/status")
+        self.assertEqual(st.status_code, 200)
+        st_body = st.get_json()
+        self.assertTrue(st_body["ok"])
+        self.assertTrue(bool(st_body["running"]))
+
+        stop = client.post("/api/sim_play/stop", json={})
+        self.assertEqual(stop.status_code, 200)
+        self.assertTrue(stop.get_json()["ok"])
+
     def test_program_api_validation_and_error_contracts(self) -> None:
         client = self.program_app.app.test_client()
 
@@ -730,6 +783,8 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": 0}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"ease_in_frames": "abc"}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"ease_out_frames": 0}).status_code, 400)
+        self.assertEqual(client.post("/api/gait/apply", json={}).status_code, 400)
+        self.assertEqual(client.post("/api/gait/apply", json={"max_delta_per_tick": 0}).status_code, 400)
 
     def test_program_timeline_event_crud_contracts(self) -> None:
         client = self.program_app.app.test_client()

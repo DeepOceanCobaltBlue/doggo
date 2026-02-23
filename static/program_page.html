@@ -568,11 +568,13 @@
                     <span class="badge"><span class="dot" id="dotConfig"></span><span id="txtConfig">config: not loaded</span></span>
                     <span class="badge"><span class="dot" id="dotProgram"></span><span id="txtProgram">program: not loaded</span></span>
                     <span class="badge"><span class="dot" id="dotCompiled"></span><span id="txtCompiled">compiled: not loaded</span></span>
+                    <span class="badge"><span class="dot" id="dotPlayback"></span><span id="txtPlayback">playback: idle</span></span>
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <button class="primary" id="btnLoadConfig">Load Config</button>
                     <button class="primary" id="btnLoadProgram">Load Program</button>
                     <button class="primary" id="btnCompile">Compile</button>
+                    <button id="btnApplyGait">Apply Gait</button>
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
@@ -646,7 +648,7 @@
             </details>
             <div style="margin-top:12px; font-size:12px;">
                 <div>- Gait controls: max delta + ease in/out frames</div>
-                <div>- Placeholder: playback controls</div>
+                <div>- Playback controls: backend simulation runtime (test only)</div>
             </div>
         </aside>
 
@@ -718,7 +720,7 @@
         let previewTickMs = 20;
         const TIMELINE_STEP_PX = 16;
         let simTickIdx = 0;
-        let playTimer = null;
+        let playPollTimer = null;
         let selectedFrameSide = "left";
         let timelineSide = "left";
         let timelineSyncEnabled = true;
@@ -734,6 +736,8 @@
             compiled_loaded: false,
             compiled_summary: null,
             sim_tick_idx: 0,
+            sim_runtime_running: false,
+            sim_runtime_reason: null,
             timeline_event_count: 0,
         };
 
@@ -1335,22 +1339,26 @@
             const hasConfig = !!appStatus.config_loaded;
             const hasProgram = !!appStatus.program_loaded;
             const hasCompiled = !!appStatus.compiled_loaded;
+            const isPlaying = !!appStatus.sim_runtime_running;
             const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
 
             setBadge("dotConfig", "txtConfig", hasConfig, `config: ${hasConfig ? "loaded" : "not loaded"}`);
             setBadge("dotProgram", "txtProgram", hasProgram, `program: ${hasProgram ? "loaded" : "not loaded"}`);
             setBadge("dotCompiled", "txtCompiled", hasCompiled, `compiled: ${hasCompiled ? "loaded" : "not loaded"}`);
+            setBadge("dotPlayback", "txtPlayback", isPlaying, `playback: ${isPlaying ? "running" : (appStatus.sim_runtime_reason || "idle")}`);
 
-            document.getElementById("btnLoadProgram").disabled = !hasConfig;
-            document.getElementById("btnCompile").disabled = !(hasConfig && (hasProgram || hasTimelineEvents));
-            document.getElementById("btnFramePrev").disabled = !hasCompiled;
-            document.getElementById("btnFrameMinus10").disabled = !hasCompiled;
-            document.getElementById("btnFramePlus10").disabled = !hasCompiled;
-            document.getElementById("btnFrameNext").disabled = !hasCompiled;
-            document.getElementById("btnFramePlay").disabled = false;
-            document.getElementById("btnFramePause").disabled = false;
-            document.getElementById("btnFrameStop").disabled = false;
-            document.getElementById("inpFrameNumber").disabled = !hasCompiled;
+            document.getElementById("btnLoadProgram").disabled = !hasConfig || isPlaying;
+            document.getElementById("btnCompile").disabled = !(hasConfig && (hasProgram || hasTimelineEvents)) || isPlaying;
+            document.getElementById("btnApplyGait").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFramePrev").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFrameMinus10").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFramePlus10").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFrameNext").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFramePlay").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFramePause").disabled = !isPlaying;
+            document.getElementById("btnFrameStop").disabled = !hasCompiled && !isPlaying;
+            document.getElementById("inpFrameNumber").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnFramePlay").textContent = isPlaying ? "Playing..." : "Play";
             updateGaitControlsState();
 
             const summary = appStatus.compiled_summary;
@@ -1384,6 +1392,17 @@
             }
             applyUiState();
             return true;
+        }
+
+        async function refreshPreviewTicks() {
+            const prev = await api("/api/program_preview?count=500");
+            previewTicks = prev.ok ? (prev.data.ticks || []) : [];
+            compiledTickMeta = computeCompiledTickMeta(previewTicks);
+            previewTickMs = prev.ok ? Number(prev.data?.summary?.tick_ms || 20) : 20;
+            appStatus.compiled_summary = prev.ok ? (prev.data?.summary || null) : null;
+            appStatus.compiled_loaded = !!previewTicks.length;
+            applyUiState();
+            return prev.ok;
         }
 
         function clampInt(v, lo, hi) {
@@ -1844,14 +1863,12 @@
                 setStatus("load config first", "danger");
                 return;
             }
-            const sparse_targets = !!document.getElementById("inpSparse").checked;
-            const body = { sparse_targets };
-            const gaitParams = getCompileGaitParams();
-            if (!gaitParams.ok) {
-                setStatus(gaitParams.error || "invalid gait controls", "danger");
+            if (appStatus.sim_runtime_running) {
+                setStatus("stop playback before compiling", "danger");
                 return;
             }
-            Object.assign(body, gaitParams.payload || {});
+            const sparse_targets = !!document.getElementById("inpSparse").checked;
+            const body = { sparse_targets };
             const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
             if (hasTimelineEvents) {
                 body.tick_ms = 20;
@@ -1867,73 +1884,94 @@
                 return;
             }
 
-            const prev = await api("/api/program_preview?count=500");
-            previewTicks = prev.ok ? (prev.data.ticks || []) : [];
-            compiledTickMeta = computeCompiledTickMeta(previewTicks);
-            previewTickMs = prev.ok ? Number(prev.data?.summary?.tick_ms || 20) : 20;
-            appStatus.compiled_summary = prev.ok ? (prev.data?.summary || null) : null;
-            appStatus.compiled_loaded = !!previewTicks.length;
+            await refreshPreviewTicks();
             await seekTick(0);
-            setStatus(`compiled ${hasTimelineEvents ? "timeline" : "program"} (${previewTicks.length} ticks)`, "ok");
+            setStatus(`compiled base ${hasTimelineEvents ? "timeline" : "program"} (${previewTicks.length} ticks)`, "ok");
             await refreshStatus();
         }
 
-        function stopPlayback() {
-            if (playTimer !== null) {
-                clearInterval(playTimer);
-                playTimer = null;
-                document.getElementById("btnFramePlay").textContent = "Play";
+        async function applyGaitProfile() {
+            if (!appStatus.compiled_loaded) {
+                setStatus("compile a base timeline first", "danger");
+                return;
             }
+            if (appStatus.sim_runtime_running) {
+                setStatus("stop playback before applying gait", "danger");
+                return;
+            }
+            const gaitParams = getCompileGaitParams();
+            if (!gaitParams.ok) {
+                setStatus(gaitParams.error || "invalid gait controls", "danger");
+                return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(gaitParams.payload || {}, "max_delta_per_tick")) {
+                setStatus("set max_delta_per_tick to apply gait", "danger");
+                return;
+            }
+            const resp = await api("/api/gait/apply", "POST", gaitParams.payload || {});
+            if (!resp.ok) {
+                setStatus(resp.data?.message || resp.data?.error || "gait apply failed", "danger");
+                return;
+            }
+            await refreshPreviewTicks();
+            await seekTick(0);
+            setStatus(`gait applied (${previewTicks.length} ticks)`, "ok");
+            await refreshStatus();
         }
 
-        function startPlayback() {
-            if (playTimer !== null) return;
-
-            const hasCompiledTimeline = !!appStatus.compiled_loaded && previewTicks.length > 0;
-            const tickMs = Math.max(1, Number(hasCompiledTimeline ? (previewTickMs || 20) : 80));
-            document.getElementById("btnFramePlay").textContent = "Playing...";
-            if (!hasCompiledTimeline) {
-                setStatus("playing timeline cursor (no compiled program loaded)", "muted");
+        function stopPlayPoller() {
+            if (playPollTimer !== null) {
+                clearInterval(playPollTimer);
+                playPollTimer = null;
             }
-            playTimer = setInterval(async () => {
-                if (hasCompiledTimeline) {
-                    const next = simTickIdx + 1;
-                    if (next >= previewTicks.length) {
-                        if (!timelineLoopEnabled) {
-                            stopPlayback();
-                            await seekTick(0);
-                            return;
-                        }
-                        await seekTick(0);
-                        return;
-                    }
-                    await seekTick(next);
-                    return;
-                }
+            document.getElementById("btnFramePlay").textContent = "Play";
+        }
 
-                const viewport = document.getElementById("timelineTracksViewport");
-                const visibleTickCount = Math.max(
-                    20,
-                    Math.floor(Math.max(0, (viewport.clientWidth || 480) - 20) / TIMELINE_STEP_PX) + 1
-                );
-                const maxTick = Math.max(1, visibleTickCount) - 1;
-                if (simTickIdx >= maxTick) {
-                    if (!timelineLoopEnabled) {
-                        stopPlayback();
-                        simTickIdx = 0;
-                        appStatus.sim_tick_idx = 0;
-                        applyUiState();
-                        return;
-                    }
-                    simTickIdx = 0;
-                    appStatus.sim_tick_idx = 0;
-                    applyUiState();
-                    return;
-                }
-                simTickIdx = simTickIdx + 1;
-                appStatus.sim_tick_idx = simTickIdx;
-                applyUiState();
-            }, tickMs);
+        async function stopPlayback() {
+            const resp = await api("/api/sim_play/stop", "POST", {});
+            if (!resp.ok) {
+                setStatus(resp.data?.error || "stop failed", "danger");
+                return;
+            }
+            stopPlayPoller();
+            await refreshStatus();
+            await refreshSimState();
+        }
+
+        async function pollPlaybackRuntime() {
+            const st = await api("/api/sim_play/status");
+            if (!st.ok) {
+                stopPlayPoller();
+                return;
+            }
+            if (!st.data?.running) {
+                stopPlayPoller();
+                await refreshStatus();
+                await refreshSimState();
+                return;
+            }
+            await refreshStatus();
+            await refreshSimState();
+        }
+
+        async function startPlayback() {
+            if (!appStatus.compiled_loaded || previewTicks.length < 1) {
+                setStatus("compile and (optionally) apply gait before playback", "danger");
+                return;
+            }
+            const resp = await api("/api/sim_play/start", "POST", { loop: !!timelineLoopEnabled });
+            if (!resp.ok) {
+                setStatus(resp.data?.message || resp.data?.error || "play failed", "danger");
+                return;
+            }
+            document.getElementById("btnFramePlay").textContent = "Playing...";
+            await refreshStatus();
+            await refreshSimState();
+            if (playPollTimer !== null) clearInterval(playPollTimer);
+            const pollMs = Math.max(40, Math.min(160, Number(previewTickMs || 80)));
+            playPollTimer = setInterval(() => {
+                pollPlaybackRuntime();
+            }, pollMs);
         }
 
         document.getElementById("btnLoadConfig").addEventListener("click", async () => {
@@ -1949,6 +1987,7 @@
 
         document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
         document.getElementById("btnCompile").addEventListener("click", compileProgram);
+        document.getElementById("btnApplyGait").addEventListener("click", applyGaitProfile);
         document.getElementById("inpMaxDelta").addEventListener("input", () => {
             updateGaitControlsState();
         });
@@ -1960,31 +1999,31 @@
         });
 
         document.getElementById("btnFramePrev").addEventListener("click", async () => {
-            stopPlayback();
+            await stopPlayback();
             await seekTick(Math.max(0, simTickIdx - 1));
         });
 
         document.getElementById("btnFrameNext").addEventListener("click", async () => {
-            stopPlayback();
+            await stopPlayback();
             await seekTick(simTickIdx + 1);
         });
 
         document.getElementById("btnFrameMinus10").addEventListener("click", async () => {
-            stopPlayback();
+            await stopPlayback();
             await seekTick(Math.max(0, simTickIdx - 10));
         });
         document.getElementById("btnFramePlus10").addEventListener("click", async () => {
-            stopPlayback();
+            await stopPlayback();
             await seekTick(simTickIdx + 10);
         });
-        document.getElementById("btnFramePlay").addEventListener("click", () => {
-            startPlayback();
+        document.getElementById("btnFramePlay").addEventListener("click", async () => {
+            await startPlayback();
         });
-        document.getElementById("btnFramePause").addEventListener("click", () => {
-            stopPlayback();
+        document.getElementById("btnFramePause").addEventListener("click", async () => {
+            await stopPlayback();
         });
         document.getElementById("btnFrameStop").addEventListener("click", async () => {
-            stopPlayback();
+            await stopPlayback();
             if (appStatus.compiled_loaded && previewTicks.length > 0) {
                 await seekTick(0);
                 return;
@@ -2002,7 +2041,7 @@
                 applyUiState();
                 return;
             }
-            stopPlayback();
+            await stopPlayback();
             await seekTick(n);
         });
 

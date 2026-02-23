@@ -54,6 +54,7 @@ class ProgramRuntimeEngine:
         stop_on_clamp: bool = False,
         realtime: bool = False,
         stop_check: Optional[Callable[[], bool]] = None,
+        tick_callback: Optional[Callable[[int, int, Dict[str, int]], None]] = None,
         now_fn=time.monotonic,
         sleep_fn=time.sleep,
     ) -> RuntimeRunResult:
@@ -151,6 +152,12 @@ class ProgramRuntimeEngine:
                     errors=errors,
                 )
             )
+            if tick_callback is not None:
+                try:
+                    tick_callback(int(packet.tick), int(packet.t_ms), dict(state_map.get(state_name, {})))
+                except Exception:
+                    # Callback failures must not fail runtime execution.
+                    pass
             executed += 1
 
         return RuntimeRunResult(
