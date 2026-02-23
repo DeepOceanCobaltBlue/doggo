@@ -688,9 +688,8 @@
                 </div>
                 <div class="row" style="margin-top:8px;">
                     <label class="fieldLabel" for="genOverlapMode">overlap mode</label>
-                    <select id="genOverlapMode">
-                        <option value="replace_range">replace range</option>
-                        <option value="skip_overlaps">skip overlaps</option>
+                    <select id="genOverlapMode" disabled>
+                        <option value="shift_right" selected>shift right (default)</option>
                     </select>
                 </div>
                 <div class="row" style="margin-top:8px;">
@@ -719,9 +718,8 @@
                 </div>
                 <div class="row" style="margin-top:8px;">
                     <label class="fieldLabel" for="dropOverlapMode">overlap mode</label>
-                    <select id="dropOverlapMode">
-                        <option value="replace_range">replace range</option>
-                        <option value="skip_overlaps">skip overlaps</option>
+                    <select id="dropOverlapMode" disabled>
+                        <option value="shift_right" selected>shift right (default)</option>
                     </select>
                 </div>
                 <div class="row" style="margin-top:8px;">
@@ -909,29 +907,7 @@
         }
 
         function compiledTickRangeForSourceRange(startFrame, endFrame) {
-            if (!Array.isArray(compiledTickMeta) || compiledTickMeta.length === 0) return null;
-            const lo = Number(startFrame);
-            const hi = Number(endFrame);
-            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
-            let minTick = null;
-            let maxTick = null;
-            const seenFrames = new Set();
-            for (const m of compiledTickMeta) {
-                const sf = Number(m.sourceFrame);
-                if (!Number.isFinite(sf)) continue;
-                if (sf < lo || sf > hi) continue;
-                seenFrames.add(Math.trunc(sf));
-                const t = Number(m.tick);
-                if (!Number.isFinite(t)) continue;
-                if (minTick === null || t < minTick) minTick = t;
-                if (maxTick === null || t > maxTick) maxTick = t;
-            }
-            if (minTick === null || maxTick === null) return null;
-            const expectedSpan = Math.max(1, Math.trunc(hi) - Math.trunc(lo) + 1);
-            // If compiled meta only covers part of the source range (common while dragging past current tail),
-            // fall back to source-frame rendering so the event keeps full width and motion.
-            if (seenFrames.size < expectedSpan) return null;
-            return { startTick: minTick, endTick: maxTick };
+            return null;
         }
 
         function eventById(eventId) {
@@ -1105,6 +1081,7 @@
             setEventError("");
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
         }
 
         async function deleteSelectedEvent() {
@@ -1120,6 +1097,7 @@
             selectedEventId = null;
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
             setStatus("event deleted", "ok");
         }
 
@@ -1145,6 +1123,7 @@
             setEventError("");
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
         }
 
         function keyboardFocusBlocksShortcuts(targetEl) {
@@ -1239,10 +1218,6 @@
             const startFrame = Math.max(MIN_SOURCE_FRAME, Math.min(Number(created.startFrame), Number(created.endFrame)));
             const endFrame = Math.max(MIN_SOURCE_FRAME, Math.max(Number(created.startFrame), Number(created.endFrame)));
             const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[created.joint] ?? 135)));
-            if (hasOverlapOnJoint(created.side, created.joint, startFrame, endFrame, null)) {
-                setEventError(`event overlaps existing event on ${created.joint}`);
-                return;
-            }
             const resp = await api("/api/timeline/events", "POST", {
                 side: created.side,
                 joint_key: created.joint,
@@ -1258,6 +1233,7 @@
             selectedEventId = Number(resp.data?.event?.id || null);
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
         }
 
         function onEventDragMove(ev) {
@@ -1320,6 +1296,7 @@
             setEventError("");
             selectedEventId = Number(eventId);
             await loadTimelineEvents();
+            await autoProduceAfterTimelineMutation();
         }
 
         function setStatus(text, cls = "") {
@@ -2198,6 +2175,23 @@
             await refreshStatus();
         }
 
+        async function autoProduceAfterTimelineMutation() {
+            if (!appStatus.config_loaded || appStatus.sim_runtime_running) return;
+            if (Number(appStatus.timeline_event_count || 0) < 1) return;
+            const gaitParams = getCompileGaitParams();
+            if (!gaitParams.ok) return;
+            const body = {
+                sparse_targets: !!document.getElementById("inpSparse").checked,
+                tick_ms: 20,
+                ...(gaitParams.payload || {}),
+            };
+            const resp = await api("/api/timeline/compile", "POST", body);
+            if (!resp.ok) return;
+            await refreshPreviewTicks();
+            await seekTick(0);
+            await refreshStatus();
+        }
+
         function getStanceGeneratorParams() {
             const side = String(document.getElementById("genSide").value || "").trim().toLowerCase();
             const leg = String(document.getElementById("genLeg").value || "").trim().toLowerCase();
@@ -2205,7 +2199,6 @@
             const durationFrames = Number.parseInt(String(document.getElementById("genDurationFrames").value || "").trim(), 10);
             const slideDx = Number.parseFloat(String(document.getElementById("genSlideDx").value || "").trim());
             const sampleEvery = Number.parseInt(String(document.getElementById("genSampleEvery").value || "").trim(), 10);
-            const overlapMode = String(document.getElementById("genOverlapMode").value || "replace_range").trim().toLowerCase();
             const toeYRaw = String(document.getElementById("genToeYLock").value || "").trim();
 
             if (!["left", "right"].includes(side)) return { ok: false, error: "side must be left/right" };
@@ -2214,9 +2207,6 @@
             if (!Number.isFinite(durationFrames) || durationFrames < 1) return { ok: false, error: "duration must be >= 1" };
             if (!Number.isFinite(slideDx)) return { ok: false, error: "slide dx must be numeric" };
             if (!Number.isFinite(sampleEvery) || sampleEvery < 1) return { ok: false, error: "sample every must be >= 1" };
-            if (!["replace_range", "skip_overlaps"].includes(overlapMode)) {
-                return { ok: false, error: "overlap mode must be replace_range or skip_overlaps" };
-            }
 
             const body = {
                 side,
@@ -2225,7 +2215,7 @@
                 duration_frames: durationFrames,
                 slide_dx_mm: slideDx,
                 sample_every_n_frames: sampleEvery,
-                overlap_mode: overlapMode,
+                overlap_mode: "shift_right",
             };
             if (toeYRaw !== "") {
                 const toeY = Number.parseFloat(toeYRaw);
@@ -2264,6 +2254,7 @@
             const usedSlide = Number(summary.used_slide_dx_mm || 0);
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
             setStatus(
                 `generated stance events: ${insertedCount} inserted, ${skippedCount} skipped, ${clampedCount} clamped, ${unreachableCount} unreachable${autoScaled ? `, auto-scaled slide to ${usedSlide.toFixed(2)}mm` : ""}`,
                 "ok",
@@ -2277,7 +2268,6 @@
             const durationFrames = Number.parseInt(String(document.getElementById("dropKneeDropDuration").value || "").trim(), 10);
             const groundY = Number.parseFloat(String(document.getElementById("dropGroundY").value || "").trim());
             const groundMode = String(document.getElementById("dropGroundMode").value || "other_leg_tangent").trim().toLowerCase();
-            const overlapMode = String(document.getElementById("dropOverlapMode").value || "replace_range").trim().toLowerCase();
 
             if (!["left", "right"].includes(side)) return { ok: false, error: "side must be left/right" };
             if (!["front", "rear"].includes(leg)) return { ok: false, error: "leg must be front/rear" };
@@ -2285,9 +2275,6 @@
             if (!Number.isFinite(durationFrames) || durationFrames < 1) return { ok: false, error: "drop duration must be >= 1" };
             if (!["other_leg_tangent", "fixed_value"].includes(groundMode)) return { ok: false, error: "ground source must be valid" };
             if (!Number.isFinite(groundY)) return { ok: false, error: "ground y must be numeric" };
-            if (!["replace_range", "skip_overlaps"].includes(overlapMode)) {
-                return { ok: false, error: "overlap mode must be replace_range or skip_overlaps" };
-            }
             return {
                 ok: true,
                 body: {
@@ -2297,7 +2284,7 @@
                     duration_frames: durationFrames,
                     ground_mode: groundMode,
                     ground_y_mm: groundY,
-                    overlap_mode: overlapMode,
+                    overlap_mode: "shift_right",
                 },
             };
         }
@@ -2331,6 +2318,7 @@
             const gMode = String(result.ground_mode || "");
             await loadTimelineEvents();
             await refreshStatus();
+            await autoProduceAfterTimelineMutation();
             setStatus(
                 `knee drop: ${inserted} inserted, ${skipped} skipped, ${startA} -> ${targetA}${hit ? " (ground reached)" : " (closest/limit)"} [${gMode || "ground"} y=${groundY.toFixed(2)}]`,
                 "ok",

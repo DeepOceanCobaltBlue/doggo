@@ -63,18 +63,29 @@ class TimelineEvent:
     id: int
     side: str
     joint_key: str
+    requested_start_frame: int
+    requested_end_frame: int
     start_frame: int
     end_frame: int
     angle_deg: int
+    input_revision: int = 0
+    resolved_revision: int = 0
+    processed: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": int(self.id),
             "side": str(self.side),
             "joint_key": str(self.joint_key),
+            "requested_start_frame": int(self.requested_start_frame),
+            "requested_end_frame": int(self.requested_end_frame),
             "start_frame": int(self.start_frame),
             "end_frame": int(self.end_frame),
             "angle_deg": int(self.angle_deg),
+            "processed": bool(self.processed),
+            "input_revision": int(self.input_revision),
+            "resolved_revision": int(self.resolved_revision),
+            "dirty": bool(int(self.input_revision) > int(self.resolved_revision)),
         }
 
 
@@ -100,6 +111,11 @@ class ProgramState:
 
         self.timeline_events: List[TimelineEvent] = []
         self._next_event_id: int = 1
+        self.timeline_revision: int = 0
+        self.timeline_tick_ms: int = 20
+        self.timeline_max_delta_per_tick: int = 5
+        self.timeline_ease_in_frames: int = 2
+        self.timeline_ease_out_frames: int = 2
 
         self._lock = threading.Lock()
 
@@ -154,6 +170,57 @@ class ProgramState:
             },
             "ok",
         )
+
+    @staticmethod
+    def _requested_span(ev: TimelineEvent) -> int:
+        return max(1, int(ev.requested_end_frame) - int(ev.requested_start_frame) + 1)
+
+    @staticmethod
+    def _required_span_for_delta(delta: int, requested_span: int, max_delta_per_tick: Optional[int]) -> int:
+        req = max(1, int(requested_span))
+        d = abs(int(delta))
+        if d <= 0:
+            return req
+        if max_delta_per_tick is None or int(max_delta_per_tick) < 1:
+            return req
+        min_frames = int((d + int(max_delta_per_tick) - 1) // int(max_delta_per_tick))
+        return max(req, min_frames)
+
+    def _reflow_timeline_events_locked(self) -> None:
+        if self.config is not None:
+            location_keys = list(self.config.position_order)
+        else:
+            location_keys = [str(loc.key) for loc in LOCATIONS]
+        base = {k: clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys}
+        events_by_joint: Dict[str, List[TimelineEvent]] = {str(k): [] for k in location_keys}
+        for ev in self.timeline_events:
+            key = str(ev.joint_key)
+            if key in events_by_joint:
+                events_by_joint[key].append(ev)
+
+        for joint in location_keys:
+            key = str(joint)
+            cur_angle = int(base.get(key, 135))
+            prev_end = 0
+            joint_events = sorted(events_by_joint.get(key, []), key=lambda e: int(e.id))
+            for ev in joint_events:
+                req_start = max(1, int(ev.requested_start_frame))
+                req_end = max(req_start, int(ev.requested_end_frame))
+                req_span = max(1, req_end - req_start + 1)
+                tgt = clamp_int(int(ev.angle_deg), 0, 270)
+                span = self._required_span_for_delta(
+                    int(tgt) - int(cur_angle),
+                    req_span,
+                    int(self.timeline_max_delta_per_tick) if int(self.timeline_max_delta_per_tick) >= 1 else None,
+                )
+                start = max(req_start, int(prev_end) + 1)
+                end = int(start) + int(span) - 1
+                ev.start_frame = int(start)
+                ev.end_frame = int(end)
+                ev.processed = True
+                ev.resolved_revision = int(self.timeline_revision)
+                cur_angle = int(tgt)
+                prev_end = int(end)
 
     def load_config_from_disk(self) -> Tuple[bool, str]:
         with self._lock:
@@ -654,47 +721,45 @@ class ProgramState:
 
         restored_events: List[TimelineEvent] = []
         if import_events is not None:
-            for item in import_events:
+            for idx, item in enumerate(import_events):
                 if not isinstance(item, dict):
                     return False, "timeline_events must contain objects"
                 ok_ev, cleaned, msg_ev = self._validate_timeline_event_fields(
                     side=item.get("side"),
                     joint_key=item.get("joint_key"),
-                    start_frame=item.get("start_frame"),
-                    end_frame=item.get("end_frame"),
+                    start_frame=item.get("requested_start_frame", item.get("start_frame")),
+                    end_frame=item.get("requested_end_frame", item.get("end_frame")),
                     angle_deg=item.get("angle_deg"),
                 )
                 if not ok_ev:
                     return False, f"invalid timeline event in import: {msg_ev}"
-                restored_events.append(TimelineEvent(id=0, **cleaned))
-
-            # Ensure no same-joint overlap in imported events.
-            for i, e in enumerate(restored_events):
-                for j in range(i):
-                    prev = restored_events[j]
-                    if e.side != prev.side or e.joint_key != prev.joint_key:
-                        continue
-                    disjoint = e.end_frame < prev.start_frame or e.start_frame > prev.end_frame
-                    if not disjoint:
-                        return False, "imported timeline events contain overlaps on the same joint"
+                restored_events.append(
+                    TimelineEvent(
+                        id=int(idx + 1),
+                        side=str(cleaned["side"]),
+                        joint_key=str(cleaned["joint_key"]),
+                        requested_start_frame=int(cleaned["start_frame"]),
+                        requested_end_frame=int(cleaned["end_frame"]),
+                        start_frame=int(cleaned["start_frame"]),
+                        end_frame=int(cleaned["end_frame"]),
+                        angle_deg=int(cleaned["angle_deg"]),
+                        input_revision=0,
+                        resolved_revision=0,
+                        processed=False,
+                    )
+                )
 
         with self._lock:
             if import_events is None:
                 self.timeline_events = []
                 self._next_event_id = 1
             else:
-                self.timeline_events = [
-                    TimelineEvent(
-                        id=i + 1,
-                        side=e.side,
-                        joint_key=e.joint_key,
-                        start_frame=e.start_frame,
-                        end_frame=e.end_frame,
-                        angle_deg=e.angle_deg,
-                    )
-                    for i, e in enumerate(restored_events)
-                ]
+                self.timeline_events = list(restored_events)
                 self._next_event_id = len(self.timeline_events) + 1
+            self.timeline_revision += 1
+            for e in self.timeline_events:
+                e.input_revision = int(self.timeline_revision)
+            self._reflow_timeline_events_locked()
         return True, "ok"
 
     def status(self) -> Dict[str, Any]:
@@ -711,6 +776,7 @@ class ProgramState:
                 "sim_runtime_running": bool(self.sim_runtime_running),
                 "sim_runtime_reason": self.sim_runtime_reason,
                 "timeline_event_count": len(self.timeline_events),
+                "timeline_revision": int(self.timeline_revision),
             }
 
     def list_timeline_events(self, *, side: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -745,7 +811,7 @@ class ProgramState:
             current = int(base.get(key, 135))
             joint_events = sorted(
                 events_by_joint.get(key, []),
-                key=lambda e: (int(e.start_frame), int(e.end_frame), int(e.id)),
+                key=lambda e: int(e.id),
             )
             for ev in joint_events:
                 start_f = int(ev.start_frame)
@@ -776,18 +842,23 @@ class ProgramState:
             return False, {}, msg
 
         with self._lock:
-            overlap_id = self._find_timeline_overlap_id(
-                side=cleaned["side"],
-                joint_key=cleaned["joint_key"],
+            self.timeline_revision += 1
+            event = TimelineEvent(
+                id=self._next_event_id,
+                side=str(cleaned["side"]),
+                joint_key=str(cleaned["joint_key"]),
+                requested_start_frame=int(cleaned["start_frame"]),
+                requested_end_frame=int(cleaned["end_frame"]),
                 start_frame=int(cleaned["start_frame"]),
                 end_frame=int(cleaned["end_frame"]),
-                ignore_event_id=None,
+                angle_deg=int(cleaned["angle_deg"]),
+                input_revision=int(self.timeline_revision),
+                resolved_revision=0,
+                processed=False,
             )
-            if overlap_id is not None:
-                return False, {}, f"event overlaps existing event #{overlap_id} on {cleaned['joint_key']}"
-            event = TimelineEvent(id=self._next_event_id, **cleaned)
             self._next_event_id += 1
             self.timeline_events.append(event)
+            self._reflow_timeline_events_locked()
             return True, event.to_dict(), "ok"
 
     def update_timeline_event(self, event_id: int, payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
@@ -803,8 +874,8 @@ class ProgramState:
             candidate = {
                 "side": payload.get("side", target.side),
                 "joint_key": payload.get("joint_key", target.joint_key),
-                "start_frame": payload.get("start_frame", target.start_frame),
-                "end_frame": payload.get("end_frame", target.end_frame),
+                "start_frame": payload.get("start_frame", target.requested_start_frame),
+                "end_frame": payload.get("end_frame", target.requested_end_frame),
                 "angle_deg": payload.get("angle_deg", target.angle_deg),
             }
 
@@ -813,39 +884,25 @@ class ProgramState:
             return False, {}, msg
 
         with self._lock:
-            overlap_id = self._find_timeline_overlap_id(
-                side=cleaned["side"],
-                joint_key=cleaned["joint_key"],
-                start_frame=int(cleaned["start_frame"]),
-                end_frame=int(cleaned["end_frame"]),
-                ignore_event_id=int(event_id),
-            )
-            if overlap_id is not None:
-                return False, {}, f"event overlaps existing event #{overlap_id} on {cleaned['joint_key']}"
             for i, e in enumerate(self.timeline_events):
                 if e.id == event_id:
-                    self.timeline_events[i] = TimelineEvent(id=event_id, **cleaned)
+                    self.timeline_revision += 1
+                    self.timeline_events[i] = TimelineEvent(
+                        id=event_id,
+                        side=str(cleaned["side"]),
+                        joint_key=str(cleaned["joint_key"]),
+                        requested_start_frame=int(cleaned["start_frame"]),
+                        requested_end_frame=int(cleaned["end_frame"]),
+                        start_frame=int(e.start_frame),
+                        end_frame=int(e.end_frame),
+                        angle_deg=int(cleaned["angle_deg"]),
+                        input_revision=int(self.timeline_revision),
+                        resolved_revision=int(e.resolved_revision),
+                        processed=bool(e.processed),
+                    )
+                    self._reflow_timeline_events_locked()
                     return True, self.timeline_events[i].to_dict(), "ok"
             return False, {}, "event not found"
-
-    def _find_timeline_overlap_id(
-        self,
-        *,
-        side: str,
-        joint_key: str,
-        start_frame: int,
-        end_frame: int,
-        ignore_event_id: Optional[int],
-    ) -> Optional[int]:
-        for existing in self.timeline_events:
-            if ignore_event_id is not None and int(existing.id) == int(ignore_event_id):
-                continue
-            if existing.side != side or existing.joint_key != joint_key:
-                continue
-            disjoint = end_frame < int(existing.start_frame) or start_frame > int(existing.end_frame)
-            if not disjoint:
-                return int(existing.id)
-        return None
 
     def delete_timeline_event(self, event_id: int) -> Tuple[bool, str]:
         with self._lock:
@@ -853,6 +910,8 @@ class ProgramState:
             self.timeline_events = [e for e in self.timeline_events if e.id != event_id]
             if len(self.timeline_events) == before:
                 return False, "event not found"
+            self.timeline_revision += 1
+            self._reflow_timeline_events_locked()
             return True, "ok"
 
     def generate_stance_slide_timeline_events(
@@ -876,9 +935,6 @@ class ProgramState:
             dyn = dict(self.config.dynamic_limits)
             fallback_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
 
-        mode = str(overlap_mode or "replace_range").strip().lower()
-        if mode not in ("replace_range", "skip_overlaps"):
-            return False, {}, "overlap_mode must be 'replace_range' or 'skip_overlaps'"
         if int(start_frame) < 1:
             return False, {}, "start_frame must be >= 1"
         if int(duration_frames) < 1:
@@ -912,52 +968,28 @@ class ProgramState:
             payload["skipped_count"] = 0
             return True, payload, "no movement events generated"
 
-        start_f = int(generated["summary"]["start_frame"])
-        end_f = int(generated["summary"]["end_frame"])
-        target_joints = {
-            str(generated["hip_joint_key"]),
-            str(generated["knee_joint_key"]),
-        }
-
         inserted: List[Dict[str, Any]] = []
         skipped = 0
         with self._lock:
-            if mode == "replace_range":
-                self.timeline_events = [
-                    e
-                    for e in self.timeline_events
-                    if not (
-                        e.side == str(side).strip().lower()
-                        and e.joint_key in target_joints
-                        and not (int(e.end_frame) < start_f or int(e.start_frame) > end_f)
-                    )
-                ]
-
+            self.timeline_revision += 1
             for ev in events_to_add:
-                overlap_id = self._find_timeline_overlap_id(
-                    side=str(ev["side"]),
-                    joint_key=str(ev["joint_key"]),
-                    start_frame=int(ev["start_frame"]),
-                    end_frame=int(ev["end_frame"]),
-                    ignore_event_id=None,
-                )
-                if overlap_id is not None:
-                    skipped += 1
-                    if mode == "replace_range":
-                        # Should be rare; keep safe behavior.
-                        continue
-                    continue
                 new_ev = TimelineEvent(
                     id=self._next_event_id,
                     side=str(ev["side"]),
                     joint_key=str(ev["joint_key"]),
+                    requested_start_frame=int(ev["start_frame"]),
+                    requested_end_frame=int(ev["end_frame"]),
                     start_frame=int(ev["start_frame"]),
                     end_frame=int(ev["end_frame"]),
                     angle_deg=int(ev["angle_deg"]),
+                    input_revision=int(self.timeline_revision),
+                    resolved_revision=0,
+                    processed=False,
                 )
                 self._next_event_id += 1
                 self.timeline_events.append(new_ev)
                 inserted.append(new_ev.to_dict())
+            self._reflow_timeline_events_locked()
 
         payload = dict(generated)
         payload["inserted_events"] = inserted
@@ -987,7 +1019,6 @@ class ProgramState:
 
         side_s = str(side).strip().lower()
         leg_s = str(leg).strip().lower()
-        mode = str(overlap_mode or "replace_range").strip().lower()
         if side_s not in ("left", "right"):
             return False, {}, "side must be left/right"
         if leg_s not in ("front", "rear"):
@@ -996,8 +1027,6 @@ class ProgramState:
             return False, {}, "start_frame must be >= 1"
         if int(duration_frames) < 1:
             return False, {}, "duration_frames must be >= 1"
-        if mode not in ("replace_range", "skip_overlaps"):
-            return False, {}, "overlap_mode must be 'replace_range' or 'skip_overlaps'"
         gmode = str(ground_mode or "other_leg_tangent").strip().lower()
         if gmode not in ("other_leg_tangent", "fixed_value"):
             return False, {}, "ground_mode must be 'other_leg_tangent' or 'fixed_value'"
@@ -1111,38 +1140,25 @@ class ProgramState:
 
         with self._lock:
             if target != knee_now:
-                if mode == "replace_range":
-                    self.timeline_events = [
-                        e
-                        for e in self.timeline_events
-                        if not (
-                            e.side == side_s
-                            and e.joint_key == knee_key
-                            and not (int(e.end_frame) < ev_start or int(e.start_frame) > ev_end)
-                        )
-                    ]
-                overlap_id = self._find_timeline_overlap_id(
+                self.timeline_revision += 1
+                new_ev = TimelineEvent(
+                    id=self._next_event_id,
                     side=side_s,
                     joint_key=knee_key,
+                    requested_start_frame=ev_start,
+                    requested_end_frame=ev_end,
                     start_frame=ev_start,
                     end_frame=ev_end,
-                    ignore_event_id=None,
+                    angle_deg=int(target),
+                    input_revision=int(self.timeline_revision),
+                    resolved_revision=0,
+                    processed=False,
                 )
-                if overlap_id is not None:
-                    skipped = 1
-                else:
-                    new_ev = TimelineEvent(
-                        id=self._next_event_id,
-                        side=side_s,
-                        joint_key=knee_key,
-                        start_frame=ev_start,
-                        end_frame=ev_end,
-                        angle_deg=int(target),
-                    )
-                    self._next_event_id += 1
-                    self.timeline_events.append(new_ev)
-                    inserted = 1
-                    event_out = new_ev.to_dict()
+                self._next_event_id += 1
+                self.timeline_events.append(new_ev)
+                self._reflow_timeline_events_locked()
+                inserted = 1
+                event_out = new_ev.to_dict()
 
         return (
             True,
@@ -1181,6 +1197,15 @@ class ProgramState:
         with self._lock:
             if self.config is None:
                 return False, "Config not loaded"
+            self.timeline_tick_ms = max(1, int(tick_ms))
+            if max_delta_per_tick is not None:
+                self.timeline_max_delta_per_tick = max(1, int(max_delta_per_tick))
+            self.timeline_ease_in_frames = max(1, int(gait_ease_in_frames))
+            self.timeline_ease_out_frames = max(1, int(gait_ease_out_frames))
+            self.timeline_revision += 1
+            for ev in self.timeline_events:
+                ev.input_revision = max(int(ev.input_revision), int(self.timeline_revision))
+            self._reflow_timeline_events_locked()
             events = list(self.timeline_events)
             location_keys = list(self.config.position_order)
             baseline_targets = {str(k): clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys}
@@ -1203,7 +1228,7 @@ class ProgramState:
             key = str(joint_key)
             joint_events = sorted(
                 events_by_joint.get(key, []),
-                key=lambda e: (int(e.start_frame), int(e.end_frame), int(e.id)),
+                key=lambda e: int(e.id),
             )
             baseline = int(baseline_targets.get(key, 135))
             frame_values = [baseline] * (max_frame + 1)
@@ -1359,7 +1384,7 @@ def api_timeline_generate_stance_slide():
         except Exception:
             return jsonify({"ok": False, "error": "toe_y_lock_mm must be numeric when provided"}), 400
 
-    overlap_mode = str(data.get("overlap_mode", "replace_range")).strip().lower()
+    overlap_mode = "shift_right"
     ok, payload, msg = state.generate_stance_slide_timeline_events(
         side=side,
         leg=leg,
@@ -1392,7 +1417,7 @@ def api_timeline_generate_knee_to_ground():
     except Exception:
         return jsonify({"ok": False, "error": "ground_y_mm must be numeric"}), 400
     ground_mode = str(data.get("ground_mode", "other_leg_tangent")).strip().lower()
-    overlap_mode = str(data.get("overlap_mode", "replace_range")).strip().lower()
+    overlap_mode = "shift_right"
 
     ok, payload, msg = state.generate_knee_to_ground_event(
         side=side,

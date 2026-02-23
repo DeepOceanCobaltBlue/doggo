@@ -861,7 +861,8 @@ class ProgramApiContracts(unittest.TestCase):
         events = imported_events_body.get("events", [])
         self.assertGreaterEqual(len(events), 1)
         self.assertEqual(int(events[0]["start_frame"]), 1)
-        self.assertEqual(int(events[0]["end_frame"]), 2)
+        self.assertEqual(int(events[0]["requested_end_frame"]), 2)
+        self.assertGreaterEqual(int(events[0]["end_frame"]), 2)
 
     def test_program_gait_apply_and_sim_playback_contracts(self) -> None:
         client = self.program_app.app.test_client()
@@ -981,13 +982,16 @@ class ProgramApiContracts(unittest.TestCase):
                 "angle_deg": 140,
             },
         )
-        self.assertEqual(overlap_create.status_code, 400)
+        self.assertEqual(overlap_create.status_code, 200)
+        overlap_body = overlap_create.get_json()
+        self.assertTrue(overlap_body["ok"])
+        self.assertGreaterEqual(int(overlap_body["event"]["start_frame"]), 7)
 
         updated = client.patch(f"/api/timeline/events/{event_id}", json={"start_frame": 4, "end_frame": 8, "angle_deg": 165})
         self.assertEqual(updated.status_code, 200)
         self.assertTrue(updated.get_json()["ok"])
         self.assertEqual(int(updated.get_json()["event"]["start_frame"]), 4)
-        self.assertEqual(int(updated.get_json()["event"]["end_frame"]), 8)
+        self.assertGreaterEqual(int(updated.get_json()["event"]["end_frame"]), 8)
         self.assertEqual(int(updated.get_json()["event"]["angle_deg"]), 165)
 
         second = client.post(
@@ -1007,7 +1011,10 @@ class ProgramApiContracts(unittest.TestCase):
             f"/api/timeline/events/{second_id}",
             json={"start_frame": 8, "end_frame": 11},
         )
-        self.assertEqual(overlap_update.status_code, 400)
+        self.assertEqual(overlap_update.status_code, 200)
+        overlap_upd_body = overlap_update.get_json()
+        self.assertTrue(overlap_upd_body["ok"])
+        self.assertGreaterEqual(int(overlap_upd_body["event"]["start_frame"]), 9)
 
         missing = client.patch("/api/timeline/events/999999", json={"angle_deg": 90})
         self.assertEqual(missing.status_code, 404)
@@ -1089,7 +1096,12 @@ class ProgramApiContracts(unittest.TestCase):
         post = client.post("/api/sim_seek", json={"tick": 11})
         self.assertEqual(post.status_code, 200)
         post_body = post.get_json()
-        self.assertEqual(int(post_body["sim_angles"]["front_left_hip"]), 180)
+        self.assertEqual(int(post_body["sim_angles"]["front_left_hip"]), 140)
+
+        final = client.post("/api/sim_seek", json={"tick": 19})
+        self.assertEqual(final.status_code, 200)
+        final_body = final.get_json()
+        self.assertEqual(int(final_body["sim_angles"]["front_left_hip"]), 180)
 
     def test_timeline_gait_apply_preserves_delayed_event_offset(self) -> None:
         client = self.program_app.app.test_client()
