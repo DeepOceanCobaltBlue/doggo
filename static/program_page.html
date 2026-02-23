@@ -822,16 +822,22 @@
             if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
             let minTick = null;
             let maxTick = null;
+            const seenFrames = new Set();
             for (const m of compiledTickMeta) {
                 const sf = Number(m.sourceFrame);
                 if (!Number.isFinite(sf)) continue;
                 if (sf < lo || sf > hi) continue;
+                seenFrames.add(Math.trunc(sf));
                 const t = Number(m.tick);
                 if (!Number.isFinite(t)) continue;
                 if (minTick === null || t < minTick) minTick = t;
                 if (maxTick === null || t > maxTick) maxTick = t;
             }
             if (minTick === null || maxTick === null) return null;
+            const expectedSpan = Math.max(1, Math.trunc(hi) - Math.trunc(lo) + 1);
+            // If compiled meta only covers part of the source range (common while dragging past current tail),
+            // fall back to source-frame rendering so the event keeps full width and motion.
+            if (seenFrames.size < expectedSpan) return null;
             return { startTick: minTick, endTick: maxTick };
         }
 
