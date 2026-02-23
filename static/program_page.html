@@ -589,6 +589,7 @@
                         type="number"
                         min="1"
                         step="1"
+                        value="5"
                         placeholder="max_delta_per_tick"
                         title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
                     />
@@ -778,6 +779,26 @@
                 });
             }
             return out;
+        }
+
+        function compiledTickRangeForSourceRange(startFrame, endFrame) {
+            if (!Array.isArray(compiledTickMeta) || compiledTickMeta.length === 0) return null;
+            const lo = Number(startFrame);
+            const hi = Number(endFrame);
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+            let minTick = null;
+            let maxTick = null;
+            for (const m of compiledTickMeta) {
+                const sf = Number(m.sourceFrame);
+                if (!Number.isFinite(sf)) continue;
+                if (sf < lo || sf > hi) continue;
+                const t = Number(m.tick);
+                if (!Number.isFinite(t)) continue;
+                if (minTick === null || t < minTick) minTick = t;
+                if (maxTick === null || t > maxTick) maxTick = t;
+            }
+            if (minTick === null || maxTick === null) return null;
+            return { startTick: minTick, endTick: maxTick };
         }
 
         function eventById(eventId) {
@@ -1287,8 +1308,11 @@
                     if (Number(selectedEventId) === Number(evt.id)) {
                         block.classList.add("selected");
                     }
-                    const start = Number(evt.start_frame);
-                    const end = Number(evt.end_frame);
+                    const sourceStart = Number(evt.start_frame);
+                    const sourceEnd = Number(evt.end_frame);
+                    const mapped = compiledTickRangeForSourceRange(sourceStart, sourceEnd);
+                    const start = mapped ? Number(mapped.startTick) : sourceStart;
+                    const end = mapped ? Number(mapped.endTick) : sourceEnd;
                     const widthFrames = Math.max(1, (end - start + 1));
                     const leftPx = start * TIMELINE_STEP_PX;
                     const widthPxEvent = Math.max(TIMELINE_STEP_PX, widthFrames * TIMELINE_STEP_PX);
@@ -1297,7 +1321,9 @@
                     block.textContent = String(evt.angle_deg);
                     if (start <= prevEnd) block.classList.add("conflict");
                     prevEnd = Math.max(prevEnd, end);
-                    block.title = `${evt.joint_key}: ${evt.start_frame}-${evt.end_frame} @ ${evt.angle_deg}°`;
+                    block.title = mapped
+                        ? `${evt.joint_key}: source f${sourceStart}-f${sourceEnd}, ticks ${start}-${end} @ ${evt.angle_deg}°`
+                        : `${evt.joint_key}: ${evt.start_frame}-${evt.end_frame} @ ${evt.angle_deg}°`;
                     block.addEventListener("click", (ev) => {
                         ev.stopPropagation();
                         selectedEventId = Number(evt.id);
