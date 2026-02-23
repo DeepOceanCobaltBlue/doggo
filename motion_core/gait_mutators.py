@@ -76,7 +76,8 @@ def _ramp_template(max_delta: int, frames: int) -> List[int]:
     out: List[int] = []
     prev = 0
     for i in range(1, frames + 1):
-        val = int(round((float(i) / float(frames + 1)) * float(max_delta)))
+        # Ramp should reach max_delta at the end of ease-in/out window.
+        val = int(round((float(i) / float(frames)) * float(max_delta)))
         val = clamp_int(val, 1, max_delta)
         if val < prev:
             val = prev
