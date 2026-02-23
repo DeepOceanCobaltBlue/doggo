@@ -657,6 +657,7 @@ class ProgramState:
                 return False, "Config not loaded"
             events = list(self.timeline_events)
             location_keys = list(self.config.position_order)
+            baseline_targets = {str(k): clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys}
 
         if not events:
             return False, "No timeline events"
@@ -665,25 +666,62 @@ class ProgramState:
         events_sorted = sorted(events, key=lambda e: int(e.id))
         max_frame = max(int(e.end_frame) for e in events_sorted)
 
+        events_by_joint: Dict[str, List[TimelineEvent]] = {str(k): [] for k in location_keys}
+        for ev in events_sorted:
+            jk = str(ev.joint_key)
+            if jk in events_by_joint:
+                events_by_joint[jk].append(ev)
+
+        joint_targets_by_frame: Dict[str, List[int]] = {}
+        for joint_key in location_keys:
+            key = str(joint_key)
+            joint_events = sorted(
+                events_by_joint.get(key, []),
+                key=lambda e: (int(e.start_frame), int(e.end_frame), int(e.id)),
+            )
+            baseline = int(baseline_targets.get(key, 135))
+            frame_values = [baseline] * (max_frame + 1)
+            cursor = 0
+            current = baseline
+
+            for ev in joint_events:
+                start_f = int(ev.start_frame)
+                end_f = int(ev.end_frame)
+                target = clamp_int(int(ev.angle_deg), 0, 270)
+
+                while cursor < start_f and cursor <= max_frame:
+                    frame_values[cursor] = current
+                    cursor += 1
+
+                span = max(1, end_f - start_f + 1)
+                start_val = current
+                for i in range(span):
+                    frame_idx = start_f + i
+                    if frame_idx > max_frame:
+                        break
+                    # Interpolate over the event window so movement spans the full event.
+                    progress = float(i + 1) / float(span)
+                    interp = int(round(start_val + (target - start_val) * progress))
+                    frame_values[frame_idx] = clamp_int(interp, 0, 270)
+                current = target
+                cursor = max(cursor, end_f + 1)
+
+            while cursor <= max_frame:
+                frame_values[cursor] = current
+                cursor += 1
+
+            joint_targets_by_frame[key] = frame_values
+
         steps: List[Dict[str, Any]] = []
-        current_targets: Dict[str, int] = {
-            str(k): clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys
-        }
         for frame in range(max_frame + 1):
-            frame_updates: Dict[str, int] = {}
-            for ev in events_sorted:
-                if ev.start_frame <= frame <= ev.end_frame:
-                    frame_updates[ev.joint_key] = clamp_int(int(ev.angle_deg), 0, 270)
-            for k, v in frame_updates.items():
-                current_targets[str(k)] = int(v)
             commands = [
                 {
                     "location": k,
-                    "target_angle": int(v),
+                    "target_angle": int(joint_targets_by_frame[str(k)][frame]),
                     "duration_ms": tick_ms_i,
                     "easing": "linear",
                 }
-                for k, v in sorted(current_targets.items())
+                for k in sorted(location_keys)
             ]
             steps.append({"step_id": f"f{frame}", "commands": commands})
 

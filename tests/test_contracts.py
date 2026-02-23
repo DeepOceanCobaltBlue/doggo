@@ -1024,5 +1024,45 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(pre_late.status_code, 200)
         self.assertEqual(int(pre_late.get_json()["sim_angles"]["front_left_hip"]), 135)
 
+    def test_timeline_event_spans_motion_over_event_frames(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 0,
+                "end_frame": 10,
+                "angle_deg": 180,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        compiled = client.post("/api/timeline/compile", json={"tick_ms": 20, "sparse_targets": True})
+        self.assertEqual(compiled.status_code, 200)
+        self.assertTrue(compiled.get_json()["ok"])
+
+        early = client.post("/api/sim_seek", json={"tick": 2})
+        self.assertEqual(early.status_code, 200)
+        early_angle = int(early.get_json()["sim_angles"]["front_left_hip"])
+        self.assertGreater(early_angle, 135)
+        self.assertLess(early_angle, 180)
+
+        mid = client.post("/api/sim_seek", json={"tick": 6})
+        self.assertEqual(mid.status_code, 200)
+        mid_angle = int(mid.get_json()["sim_angles"]["front_left_hip"])
+        self.assertGreater(mid_angle, early_angle)
+        self.assertLess(mid_angle, 180)
+
+        done = client.post("/api/sim_seek", json={"tick": 11})
+        self.assertEqual(done.status_code, 200)
+        done_angle = int(done.get_json()["sim_angles"]["front_left_hip"])
+        self.assertEqual(done_angle, 180)
+
 if __name__ == "__main__":
     unittest.main()
