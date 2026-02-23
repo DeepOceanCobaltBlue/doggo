@@ -756,6 +756,7 @@
         const TIMELINE_TAIL_PAD_FRAMES = 60;
         let simTickIdx = 0;
         let playPollTimer = null;
+        let lastBrowseStartHandle = null;
         let selectedFrameSide = "left";
         let timelineSide = "left";
         let timelineSyncEnabled = true;
@@ -2181,6 +2182,43 @@
             setStatus(`imported ${String(file.name || "selected file")}`, "ok");
         }
 
+        async function browseAndImportProgramFile() {
+            // Best-effort sticky directory in supported browsers.
+            if (typeof window.showOpenFilePicker === "function" && window.isSecureContext) {
+                try {
+                    const pickerOpts = {
+                        id: "doggo-program-import",
+                        multiple: false,
+                        types: [
+                            {
+                                description: "JSON files",
+                                accept: { "application/json": [".json"] },
+                            },
+                        ],
+                        excludeAcceptAllOption: false,
+                    };
+                    if (lastBrowseStartHandle) {
+                        pickerOpts.startIn = lastBrowseStartHandle;
+                    } else {
+                        pickerOpts.startIn = "documents";
+                    }
+                    const handles = await window.showOpenFilePicker(pickerOpts);
+                    if (!Array.isArray(handles) || handles.length < 1) return;
+                    const fh = handles[0];
+                    if (!fh) return;
+                    lastBrowseStartHandle = fh;
+                    const file = await fh.getFile();
+                    await importProgramFromPickedFile(file);
+                    return;
+                } catch (_e) {
+                    // User cancel or API unavailable behavior; fall through to input picker.
+                }
+            }
+            const inp = document.getElementById("inpBrowseImport");
+            if (!inp) return;
+            inp.click();
+        }
+
         function stopPlayPoller() {
             if (playPollTimer !== null) {
                 clearInterval(playPollTimer);
@@ -2263,10 +2301,8 @@
             setStatus("exports refreshed", "muted");
         });
         document.getElementById("btnImportExported").addEventListener("click", importSelectedExportedProgram);
-        document.getElementById("btnBrowseImport").addEventListener("click", () => {
-            const inp = document.getElementById("inpBrowseImport");
-            if (!inp) return;
-            inp.click();
+        document.getElementById("btnBrowseImport").addEventListener("click", async () => {
+            await browseAndImportProgramFile();
         });
         document.getElementById("inpBrowseImport").addEventListener("change", async (ev) => {
             const inputEl = ev.target;
