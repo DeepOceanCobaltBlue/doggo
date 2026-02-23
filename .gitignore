@@ -13,3 +13,7 @@ venv/
 
 # Config files that are machine-specific (optional)
 doggo_config.json
+
+# Generated program exports
+exports/*
+!exports/.gitkeep

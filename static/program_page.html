@@ -938,6 +938,23 @@
             return timelineEvents.find((e) => Number(e.id) === Number(eventId)) || null;
         }
 
+        function hasOverlapOnJoint(side, jointKey, startFrame, endFrame, ignoreId = null) {
+            const s = Number(startFrame);
+            const e = Number(endFrame);
+            if (!Number.isFinite(s) || !Number.isFinite(e)) return false;
+            for (const existing of timelineEvents) {
+                if (String(existing.side) !== String(side)) continue;
+                if (String(existing.joint_key) !== String(jointKey)) continue;
+                if (ignoreId !== null && Number(existing.id) === Number(ignoreId)) continue;
+                const xs = Number(existing.start_frame);
+                const xe = Number(existing.end_frame);
+                if (!Number.isFinite(xs) || !Number.isFinite(xe)) continue;
+                const disjoint = e < xs || s > xe;
+                if (!disjoint) return true;
+            }
+            return false;
+        }
+
         function frameFromClientX(rowEl, viewport, clientX) {
             const rect = rowEl.getBoundingClientRect();
             const xPx = Math.max(0, (clientX - rect.left) + viewport.scrollLeft);
@@ -1222,6 +1239,10 @@
             const startFrame = Math.max(MIN_SOURCE_FRAME, Math.min(Number(created.startFrame), Number(created.endFrame)));
             const endFrame = Math.max(MIN_SOURCE_FRAME, Math.max(Number(created.startFrame), Number(created.endFrame)));
             const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[created.joint] ?? 135)));
+            if (hasOverlapOnJoint(created.side, created.joint, startFrame, endFrame, null)) {
+                setEventError(`event overlaps existing event on ${created.joint}`);
+                return;
+            }
             const resp = await api("/api/timeline/events", "POST", {
                 side: created.side,
                 joint_key: created.joint,

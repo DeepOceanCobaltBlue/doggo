@@ -722,6 +722,23 @@ class ProgramState:
                 events = [e for e in self.timeline_events if e.side == side_s]
             return [e.to_dict() for e in events]
 
+    def _state_at_source_frame(self, frame: int) -> Dict[str, int]:
+        frame_i = int(frame)
+        with self._lock:
+            if self.config is None:
+                return {}
+            location_keys = list(self.config.position_order)
+            events = list(self.timeline_events)
+            # Use current simulation pose as baseline so generators can be seeded from manually posed state.
+            base = {k: clamp_int(int(self.sim_angles.get(k, self.normal_angles.get(k, 135))), 0, 270) for k in location_keys}
+
+        events_sorted = sorted(events, key=lambda e: int(e.id))
+        state = dict(base)
+        for ev in events_sorted:
+            if int(ev.start_frame) <= frame_i <= int(ev.end_frame):
+                state[str(ev.joint_key)] = clamp_int(int(ev.angle_deg), 0, 270)
+        return state
+
     def create_timeline_event(self, payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
         ok, cleaned, msg = self._validate_timeline_event_fields(
             side=payload.get("side"),
@@ -832,7 +849,7 @@ class ProgramState:
                 return False, {}, "Playback is running"
             cfg_locs = dict(self.config.locations)
             dyn = dict(self.config.dynamic_limits)
-            start_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
+            fallback_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
 
         mode = str(overlap_mode or "replace_range").strip().lower()
         if mode not in ("replace_range", "skip_overlaps"):
@@ -845,6 +862,9 @@ class ProgramState:
             return False, {}, "sample_every_n_frames must be >= 1"
 
         try:
+            start_state = self._state_at_source_frame(int(start_frame))
+            if not start_state:
+                start_state = dict(fallback_state)
             generated = generate_stance_slide_events(
                 dynamic_limits=dyn,
                 locations_cfg=cfg_locs,
@@ -938,7 +958,7 @@ class ProgramState:
                 return False, {}, "Playback is running"
             cfg_locs = dict(self.config.locations)
             dyn = dict(self.config.dynamic_limits)
-            start_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
+            fallback_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
 
         side_s = str(side).strip().lower()
         leg_s = str(leg).strip().lower()
@@ -958,6 +978,9 @@ class ProgramState:
             return False, {}, "ground_mode must be 'other_leg_tangent' or 'fixed_value'"
 
         hip_key, knee_key = joint_keys_for_side_leg(side_s, leg_s)
+        start_state = self._state_at_source_frame(int(start_frame))
+        if not start_state:
+            start_state = dict(fallback_state)
         knee_now = int(start_state.get(knee_key, 135))
 
         knee_loc_cfg = cfg_locs.get(knee_key, {})
@@ -1012,11 +1035,11 @@ class ProgramState:
         target = knee_now
         hit_ground = False
         toe_y_target, toe_x_target = _active_contact_line_y(target)
-        best_k = int(knee_now)
+        best_k: Optional[int] = None
         best_toe_y = float(toe_y_target)
         best_toe_x = float(toe_x_target)
-        best_err = abs(float(toe_y_target) - float(ground_y_used))
-        if float(toe_y_target) <= float(ground_y_used):
+        best_err = float("inf")
+        if float(toe_y_target) >= float(ground_y_used):
             hit_ground = True
         else:
             # Requested behavior: decrease knee command angle while checking ground line.
@@ -1028,17 +1051,19 @@ class ProgramState:
                     best_k = int(k)
                     best_toe_y = float(toe_y)
                     best_toe_x = float(toe_x)
-                if float(toe_y) <= float(ground_y_used):
+                if float(toe_y) >= float(ground_y_used):
                     target = int(k)
                     toe_y_target = float(toe_y)
                     toe_x_target = float(toe_x)
                     hit_ground = True
                     break
             if not hit_ground:
-                # No crossing in requested direction: pick closest-to-ground candidate from decrement sweep.
-                target = int(best_k)
-                toe_y_target = float(best_toe_y)
-                toe_x_target = float(best_toe_x)
+                # No crossing in requested direction: pick closest candidate from decrement sweep
+                # (exclude the unchanged start angle so a drop action still produces motion when possible).
+                if best_k is not None:
+                    target = int(best_k)
+                    toe_y_target = float(best_toe_y)
+                    toe_x_target = float(best_toe_x)
 
         inserted = 0
         skipped = 0
