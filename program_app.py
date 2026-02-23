@@ -535,6 +535,7 @@ class ProgramState:
                     "tick_ms": tick_ms,
                     "steps": steps,
                 },
+                "timeline_events": [e.to_dict() for e in self.timeline_events],
                 "summary": summarize_timeline(timeline),
             }
 
@@ -569,6 +570,7 @@ class ProgramState:
         if not out.get("ok"):
             return out
         program = out.get("program", {})
+        timeline_events = out.get("timeline_events", [])
         raw_name = "" if filename is None else str(filename).strip()
         if raw_name:
             safe_name = self._sanitize_export_filename(raw_name)
@@ -580,7 +582,12 @@ class ProgramState:
             return {"ok": False, "error": "invalid filename"}
         out_path = EXPORTS_DIR / safe_name
         try:
-            out_path.write_text(json.dumps(program, indent=2), encoding="utf-8")
+            payload = {
+                "program": program,
+                "timeline_events": timeline_events,
+                "exported_utc": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            }
+            out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except Exception as e:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "filename": safe_name, "path": str(out_path), "summary": out.get("summary")}
@@ -596,11 +603,63 @@ class ProgramState:
             raw = json.loads(p.read_text(encoding="utf-8"))
         except Exception as e:
             return False, f"failed to read json: {e}"
+        import_events: Optional[List[Dict[str, Any]]] = None
+        program_payload = raw
         if isinstance(raw, dict) and isinstance(raw.get("program"), dict):
-            raw = raw["program"]
-        if not isinstance(raw, dict):
+            program_payload = raw["program"]
+            ev = raw.get("timeline_events", None)
+            if isinstance(ev, list):
+                import_events = ev
+        if not isinstance(program_payload, dict):
             return False, "program file must be a JSON object"
-        return self.load_program_json(raw)
+        ok, msg = self.load_program_json(program_payload)
+        if not ok:
+            return False, msg
+
+        restored_events: List[TimelineEvent] = []
+        if import_events is not None:
+            for item in import_events:
+                if not isinstance(item, dict):
+                    return False, "timeline_events must contain objects"
+                ok_ev, cleaned, msg_ev = self._validate_timeline_event_fields(
+                    side=item.get("side"),
+                    joint_key=item.get("joint_key"),
+                    start_frame=item.get("start_frame"),
+                    end_frame=item.get("end_frame"),
+                    angle_deg=item.get("angle_deg"),
+                )
+                if not ok_ev:
+                    return False, f"invalid timeline event in import: {msg_ev}"
+                restored_events.append(TimelineEvent(id=0, **cleaned))
+
+            # Ensure no same-joint overlap in imported events.
+            for i, e in enumerate(restored_events):
+                for j in range(i):
+                    prev = restored_events[j]
+                    if e.side != prev.side or e.joint_key != prev.joint_key:
+                        continue
+                    disjoint = e.end_frame < prev.start_frame or e.start_frame > prev.end_frame
+                    if not disjoint:
+                        return False, "imported timeline events contain overlaps on the same joint"
+
+        with self._lock:
+            if import_events is None:
+                self.timeline_events = []
+                self._next_event_id = 1
+            else:
+                self.timeline_events = [
+                    TimelineEvent(
+                        id=i + 1,
+                        side=e.side,
+                        joint_key=e.joint_key,
+                        start_frame=e.start_frame,
+                        end_frame=e.end_frame,
+                        angle_deg=e.angle_deg,
+                    )
+                    for i, e in enumerate(restored_events)
+                ]
+                self._next_event_id = len(self.timeline_events) + 1
+        return True, "ok"
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
