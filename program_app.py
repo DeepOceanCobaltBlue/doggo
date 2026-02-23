@@ -214,7 +214,14 @@ class ProgramState:
             dense_states.append(dict(cur))
         return dense_states
 
-    def compile_program(self, *, sparse_targets: bool = True, max_delta_per_tick: Optional[int] = None) -> Tuple[bool, str]:
+    def compile_program(
+        self,
+        *,
+        sparse_targets: bool = True,
+        max_delta_per_tick: Optional[int] = None,
+        gait_ease_in_frames: int = 2,
+        gait_ease_out_frames: int = 2,
+    ) -> Tuple[bool, str]:
         with self._lock:
             if self.config is None:
                 return False, "Config not loaded"
@@ -228,6 +235,8 @@ class ProgramState:
                 sparse_targets=bool(sparse_targets),
                 max_delta_per_tick=max_delta_per_tick,
                 apply_slew_limits=True,
+                gait_ease_in_frames=int(gait_ease_in_frames),
+                gait_ease_out_frames=int(gait_ease_out_frames),
             )
             self.compiled_timeline = timeline
             self.compiled_dense_states = self._build_dense_states(timeline, self.normal_angles)
@@ -426,6 +435,8 @@ class ProgramState:
         tick_ms: int = 20,
         sparse_targets: bool = True,
         max_delta_per_tick: Optional[int] = None,
+        gait_ease_in_frames: int = 2,
+        gait_ease_out_frames: int = 2,
     ) -> Tuple[bool, str]:
         with self._lock:
             if self.config is None:
@@ -471,7 +482,12 @@ class ProgramState:
         ok_load, msg_load = self.load_program_json(raw_program)
         if not ok_load:
             return False, msg_load
-        ok_comp, msg_comp = self.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta_per_tick)
+        ok_comp, msg_comp = self.compile_program(
+            sparse_targets=sparse_targets,
+            max_delta_per_tick=max_delta_per_tick,
+            gait_ease_in_frames=gait_ease_in_frames,
+            gait_ease_out_frames=gait_ease_out_frames,
+        )
         if not ok_comp:
             return False, msg_comp
         return True, "ok"
@@ -617,7 +633,22 @@ def api_compile_program():
         if max_delta < 1:
             return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
 
-    ok, msg = state.compile_program(sparse_targets=sparse_targets, max_delta_per_tick=max_delta)
+    try:
+        ease_in_frames = int(data.get("ease_in_frames", 2))
+        ease_out_frames = int(data.get("ease_out_frames", 2))
+    except Exception:
+        return jsonify({"ok": False, "error": "ease_in_frames/ease_out_frames must be integers"}), 400
+    if ease_in_frames < 1:
+        return jsonify({"ok": False, "error": "ease_in_frames must be >= 1"}), 400
+    if ease_out_frames < 1:
+        return jsonify({"ok": False, "error": "ease_out_frames must be >= 1"}), 400
+
+    ok, msg = state.compile_program(
+        sparse_targets=sparse_targets,
+        max_delta_per_tick=max_delta,
+        gait_ease_in_frames=ease_in_frames,
+        gait_ease_out_frames=ease_out_frames,
+    )
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code
 
@@ -649,10 +680,22 @@ def api_timeline_compile():
         if max_delta < 1:
             return jsonify({"ok": False, "error": "max_delta_per_tick must be >= 1"}), 400
 
+    try:
+        ease_in_frames = int(data.get("ease_in_frames", 2))
+        ease_out_frames = int(data.get("ease_out_frames", 2))
+    except Exception:
+        return jsonify({"ok": False, "error": "ease_in_frames/ease_out_frames must be integers"}), 400
+    if ease_in_frames < 1:
+        return jsonify({"ok": False, "error": "ease_in_frames must be >= 1"}), 400
+    if ease_out_frames < 1:
+        return jsonify({"ok": False, "error": "ease_out_frames must be >= 1"}), 400
+
     ok, msg = state.compile_timeline_events(
         tick_ms=tick_ms,
         sparse_targets=sparse_targets,
         max_delta_per_tick=max_delta,
+        gait_ease_in_frames=ease_in_frames,
+        gait_ease_out_frames=ease_out_frames,
     )
     code = 200 if ok else 400
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), code

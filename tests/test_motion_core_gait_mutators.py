@@ -37,7 +37,13 @@ class MotionCoreGaitMutatorsTests(unittest.TestCase):
             apply_slew_limits=False,
         )
         limited = apply_global_max_delta_per_tick(timeline, max_delta_per_tick=10)
-        self.assertEqual(limited.ticks[1].targets["rear_left_hip"], 140)
+        self.assertEqual(limited.ticks[-1].targets["rear_left_hip"], 230)
+        deltas = [
+            abs(int(limited.ticks[i].targets["rear_left_hip"]) - int(limited.ticks[i - 1].targets["rear_left_hip"]))
+            for i in range(1, len(limited.ticks))
+        ]
+        self.assertTrue(all(d <= 10 for d in deltas))
+        self.assertGreater(len(limited.ticks), 11)  # eased ramps add ticks beyond pure ceil(distance / max_delta)
 
     def test_command_slew_limits_respects_max_deg_per_sec(self) -> None:
         ok, spec, _msg = normalize_and_validate_program_spec(
@@ -76,6 +82,57 @@ class MotionCoreGaitMutatorsTests(unittest.TestCase):
             prev = slewed.ticks[i - 1].targets["rear_left_hip"]
             cur = slewed.ticks[i].targets["rear_left_hip"]
             self.assertLessEqual(abs(int(cur) - int(prev)), 2)
+
+    def test_compile_timeline_max_delta_uses_gait_ease_frames(self) -> None:
+        ok, spec, _msg = normalize_and_validate_program_spec(
+            {
+                "program_id": "gait_profile",
+                "tick_ms": 20,
+                "steps": [
+                    {
+                        "commands": [
+                            {
+                                "location": "rear_left_hip",
+                                "target_angle": 190,
+                                "duration_ms": 200,
+                                "easing": "ease_in_out",
+                            },
+                        ]
+                    }
+                ],
+            },
+            location_keys=["rear_left_hip"],
+        )
+        self.assertTrue(ok)
+        assert spec is not None
+
+        timeline = compile_timeline(
+            spec,
+            location_keys=["rear_left_hip"],
+            start_state={"rear_left_hip": 135},
+            sparse_targets=False,
+            apply_slew_limits=False,
+            max_delta_per_tick=5,
+            gait_ease_in_frames=2,
+            gait_ease_out_frames=2,
+        )
+        expected = [
+            135,
+            137,
+            140,
+            145,
+            150,
+            155,
+            160,
+            165,
+            170,
+            175,
+            180,
+            185,
+            188,
+            190,
+        ]
+        self.assertEqual([int(t.targets["rear_left_hip"]) for t in timeline.ticks], expected)
 
 
 if __name__ == "__main__":

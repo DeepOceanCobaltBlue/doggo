@@ -356,7 +356,17 @@
         }
         .timelineRulerLabels {
             position: absolute;
-            inset: 0;
+            inset: 0 0 11px 0;
+            z-index: 2;
+            pointer-events: none;
+            overflow: visible;
+        }
+        .timelineSourceLabels {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 11px;
             z-index: 2;
             pointer-events: none;
             overflow: visible;
@@ -375,6 +385,36 @@
         }
         .timelineRulerLabel.first {
             transform: none;
+        }
+        .timelineSourceLabel {
+            position: absolute;
+            bottom: 0;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, .86);
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            white-space: nowrap;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, .85);
+            padding: 0 2px;
+            background: rgba(8, 10, 18, .55);
+        }
+        .timelineSourceLabel.first {
+            transform: none;
+            left: 2px !important;
+        }
+        .timelineSourceMarker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            transform: translateX(-0.5px);
+            background: rgba(255, 255, 255, .25);
+            pointer-events: none;
+            z-index: 1;
+        }
+        .timelineSourceMarker.inserted {
+            background: rgba(255, 209, 102, .85);
         }
         .timelineTrackRow {
             position: relative;
@@ -461,6 +501,11 @@
         .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
         .dot.ok { background: var(--ok); }
         .dot.bad { background: var(--danger); }
+        .fieldLabel {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+        }
 
         details {
             border: 1px solid var(--border);
@@ -536,6 +581,7 @@
                     </label>
                 </div>
                 <div class="row" style="margin-top:10px;">
+                    <label class="fieldLabel" for="inpMaxDelta">gait max delta / tick</label>
                     <input
                         id="inpMaxDelta"
                         type="number"
@@ -544,6 +590,33 @@
                         placeholder="max_delta_per_tick"
                         title="Optional global smoothing limit in degrees per tick. Caps how much any joint can change each compile tick."
                     />
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="inpEaseInFrames">gait ease in frames</label>
+                    <input
+                        id="inpEaseInFrames"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="2"
+                        placeholder="ease_in_frames"
+                        title="Gait ease-in frame count used when max_delta_per_tick is enabled."
+                    />
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="inpEaseOutFrames">gait ease out frames</label>
+                    <input
+                        id="inpEaseOutFrames"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="2"
+                        placeholder="ease_out_frames"
+                        title="Gait ease-out frame count used when max_delta_per_tick is enabled."
+                    />
+                </div>
+                <div class="muted" id="gaitHint" style="margin-top:6px; font-size:12px;">
+                    Enable <code>max_delta_per_tick</code> to apply gait easing controls.
                 </div>
             </details>
             <details open style="margin-top:10px;">
@@ -572,8 +645,7 @@
                 <div class="muted" id="evtInfo" style="margin-top:8px;">No event selected</div>
             </details>
             <div style="margin-top:12px; font-size:12px;">
-                <div>- Placeholder: gait controls</div>
-                <div>- Placeholder: interpolation/smoothing knobs</div>
+                <div>- Gait controls: max delta + ease in/out frames</div>
                 <div>- Placeholder: playback controls</div>
             </div>
         </aside>
@@ -621,6 +693,7 @@
                         <div class="timelineTracksInner" id="timelineTracksInner">
                             <div class="timelineRuler">
                                 <div class="timelineRulerLabels" id="timelineRulerLabels"></div>
+                                <div class="timelineSourceLabels" id="timelineSourceLabels"></div>
                             </div>
                             <div class="timelineTrackRow" data-row="0"></div>
                             <div class="timelineTrackRow" data-row="1"></div>
@@ -651,6 +724,7 @@
         let timelineSyncEnabled = true;
         let timelineLoopEnabled = true;
         let timelineEvents = [];
+        let compiledTickMeta = [];
         let selectedEventId = null;
         let dragState = null;
         let createEventState = null;
@@ -662,6 +736,45 @@
             sim_tick_idx: 0,
             timeline_event_count: 0,
         };
+
+        function parseTimelineSourceFrame(meta) {
+            if (!meta) return null;
+            const stepId = String(meta.step_id || "");
+            const match = /^f(\d+)$/i.exec(stepId);
+            if (match) return Number(match[1]);
+            return Number.isFinite(Number(meta.step_index)) ? Number(meta.step_index) : null;
+        }
+
+        function computeCompiledTickMeta(ticks) {
+            if (!Array.isArray(ticks) || ticks.length === 0) return [];
+            const out = [];
+            let prevKey = null;
+            let sourceOrdinal = -1;
+            let runIndex = 0;
+            for (let i = 0; i < ticks.length; i += 1) {
+                const meta = ticks[i]?.meta || {};
+                const stepId = String(meta.step_id || "");
+                const stepIndex = Number(meta.step_index ?? -1);
+                const sourceFrame = parseTimelineSourceFrame(meta);
+                const sourceKey = `${stepIndex}:${stepId}`;
+                if (sourceKey !== prevKey) {
+                    sourceOrdinal += 1;
+                    runIndex = 0;
+                    prevKey = sourceKey;
+                } else {
+                    runIndex += 1;
+                }
+                out.push({
+                    tick: i,
+                    stepId,
+                    stepIndex,
+                    sourceFrame,
+                    sourceOrdinal,
+                    inserted: runIndex > 0,
+                });
+            }
+            return out;
+        }
 
         function eventById(eventId) {
             return timelineEvents.find((e) => Number(e.id) === Number(eventId)) || null;
@@ -997,6 +1110,57 @@
             txt.textContent = text;
         }
 
+        function updateGaitControlsState() {
+            const maxDeltaEl = document.getElementById("inpMaxDelta");
+            const easeInEl = document.getElementById("inpEaseInFrames");
+            const easeOutEl = document.getElementById("inpEaseOutFrames");
+            const hintEl = document.getElementById("gaitHint");
+            const maxDeltaRaw = String(maxDeltaEl.value || "").trim();
+            const maxDelta = Number(maxDeltaRaw);
+            const enabled = maxDeltaRaw !== "" && Number.isFinite(maxDelta) && maxDelta >= 1;
+
+            easeInEl.disabled = !enabled;
+            easeOutEl.disabled = !enabled;
+
+            if (!enabled) {
+                hintEl.textContent = "Enable max_delta_per_tick to apply gait easing controls.";
+                hintEl.className = "muted";
+                return;
+            }
+
+            const easeIn = Number(String(easeInEl.value || "").trim());
+            const easeOut = Number(String(easeOutEl.value || "").trim());
+            if (!Number.isFinite(easeIn) || !Number.isFinite(easeOut) || easeIn < 1 || easeOut < 1) {
+                hintEl.textContent = "ease in/out frames must be integers >= 1.";
+                hintEl.className = "danger";
+                return;
+            }
+            hintEl.textContent = `Gait profile active: max delta ${Math.trunc(maxDelta)} deg/tick, ease ${Math.trunc(easeIn)} in / ${Math.trunc(easeOut)} out.`;
+            hintEl.className = "muted";
+        }
+
+        function getCompileGaitParams() {
+            const maxDeltaRaw = String(document.getElementById("inpMaxDelta").value || "").trim();
+            if (!maxDeltaRaw) return { ok: true, payload: {} };
+            const maxDelta = Number.parseInt(maxDeltaRaw, 10);
+            if (!Number.isFinite(maxDelta) || maxDelta < 1) {
+                return { ok: false, error: "max_delta_per_tick must be an integer >= 1" };
+            }
+            const easeIn = Number.parseInt(String(document.getElementById("inpEaseInFrames").value || "").trim(), 10);
+            const easeOut = Number.parseInt(String(document.getElementById("inpEaseOutFrames").value || "").trim(), 10);
+            if (!Number.isFinite(easeIn) || easeIn < 1 || !Number.isFinite(easeOut) || easeOut < 1) {
+                return { ok: false, error: "ease in/out frames must be integers >= 1" };
+            }
+            return {
+                ok: true,
+                payload: {
+                    max_delta_per_tick: maxDelta,
+                    ease_in_frames: easeIn,
+                    ease_out_frames: easeOut,
+                },
+            };
+        }
+
         function renderTimelineSurface() {
             document.getElementById("timelineSideSelect").value = timelineSide;
             document.getElementById("timelineSync").checked = timelineSyncEnabled;
@@ -1006,15 +1170,18 @@
             const inner = document.getElementById("timelineTracksInner");
             const playhead = document.getElementById("timelinePlayhead");
             const rulerLabels = document.getElementById("timelineRulerLabels");
+            const sourceLabels = document.getElementById("timelineSourceLabels");
             const tickCountRaw = Number(appStatus.compiled_summary?.num_ticks || 0);
             const visibleTickCount = Math.max(20, Math.floor(Math.max(0, (viewport.clientWidth || 480) - 20) / TIMELINE_STEP_PX) + 1);
             const tickCount = Math.max(1, tickCountRaw || visibleTickCount);
             const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
             inner.style.width = `${widthPx}px`;
             rulerLabels.style.width = `${widthPx}px`;
+            sourceLabels.style.width = `${widthPx}px`;
 
             const lastRenderedWidth = Number(rulerLabels.dataset.widthPx || 0);
-            if (lastRenderedWidth !== widthPx) {
+            const lastRenderedTicks = Number(rulerLabels.dataset.tickCount || 0);
+            if (lastRenderedWidth !== widthPx || lastRenderedTicks !== tickCount) {
                 rulerLabels.innerHTML = "";
                 const maxTickForWidth = Math.floor(Math.max(0, widthPx - 1) / TIMELINE_STEP_PX);
                 for (let i = 0; i <= maxTickForWidth; i += 5) {
@@ -1030,6 +1197,46 @@
                     rulerLabels.appendChild(el);
                 }
                 rulerLabels.dataset.widthPx = String(widthPx);
+                rulerLabels.dataset.tickCount = String(tickCount);
+            }
+
+            sourceLabels.innerHTML = "";
+            const sourceBoundaries = [];
+            const insertedTicks = [];
+            for (let i = 0; i < compiledTickMeta.length; i += 1) {
+                const cur = compiledTickMeta[i];
+                const prev = i > 0 ? compiledTickMeta[i - 1] : null;
+                if (!prev || prev.sourceOrdinal !== cur.sourceOrdinal) {
+                    sourceBoundaries.push({ tick: i, meta: cur });
+                }
+                if (cur.inserted) insertedTicks.push(i);
+            }
+            let lastLabelX = -9999;
+            for (const b of sourceBoundaries) {
+                const marker = document.createElement("span");
+                marker.className = "timelineSourceMarker";
+                marker.style.left = `${b.tick * TIMELINE_STEP_PX}px`;
+                sourceLabels.appendChild(marker);
+
+                const x = b.tick * TIMELINE_STEP_PX;
+                if (x - lastLabelX < 44 && b.tick !== 0) continue;
+                const lbl = document.createElement("span");
+                lbl.className = "timelineSourceLabel";
+                if (b.tick === 0) lbl.classList.add("first");
+                lbl.style.left = `${x}px`;
+                const sourceFrame = Number(b.meta.sourceFrame);
+                if (Number.isFinite(sourceFrame) && sourceFrame >= 0) lbl.textContent = `f${sourceFrame}`;
+                else if (b.meta.stepId && b.meta.stepId !== "initial") lbl.textContent = b.meta.stepId;
+                else if (Number.isFinite(Number(b.meta.stepIndex)) && Number(b.meta.stepIndex) >= 0) lbl.textContent = `s${b.meta.stepIndex}`;
+                else lbl.textContent = "init";
+                sourceLabels.appendChild(lbl);
+                lastLabelX = x;
+            }
+            for (const t of insertedTicks) {
+                const marker = document.createElement("span");
+                marker.className = "timelineSourceMarker inserted";
+                marker.style.left = `${t * TIMELINE_STEP_PX}px`;
+                sourceLabels.appendChild(marker);
             }
 
             const clampedTick = Math.max(0, Math.min(tickCount - 1, Number(simTickIdx || 0)));
@@ -1049,6 +1256,20 @@
             const trackRows = Array.from(inner.querySelectorAll(".timelineTrackRow"));
             for (const rowEl of trackRows) {
                 rowEl.querySelectorAll(".timelineEventBlock").forEach((el) => el.remove());
+                rowEl.querySelectorAll(".timelineSourceMarker").forEach((el) => el.remove());
+                for (const b of sourceBoundaries) {
+                    if (b.tick <= 0) continue;
+                    const marker = document.createElement("span");
+                    marker.className = "timelineSourceMarker";
+                    marker.style.left = `${b.tick * TIMELINE_STEP_PX}px`;
+                    rowEl.appendChild(marker);
+                }
+                for (const t of insertedTicks) {
+                    const marker = document.createElement("span");
+                    marker.className = "timelineSourceMarker inserted";
+                    marker.style.left = `${t * TIMELINE_STEP_PX}px`;
+                    rowEl.appendChild(marker);
+                }
                 const rowIdx = Number(rowEl.dataset.row || -1);
                 const jointKey = sideKeys[rowIdx] || "";
                 const rowEvents = timelineEvents
@@ -1130,10 +1351,13 @@
             document.getElementById("btnFramePause").disabled = false;
             document.getElementById("btnFrameStop").disabled = false;
             document.getElementById("inpFrameNumber").disabled = !hasCompiled;
+            updateGaitControlsState();
 
             const summary = appStatus.compiled_summary;
             const total = summary ? Math.max(0, Number(summary.num_ticks) - 1) : 0;
-            document.getElementById("frameTotalTxt").textContent = `/ ${total}`;
+            const logicalFrames = new Set(compiledTickMeta.map((m) => Number(m.sourceOrdinal))).size;
+            const logicalTxt = hasCompiled && logicalFrames > 0 ? ` (${Math.max(0, logicalFrames - 1)} source)` : "";
+            document.getElementById("frameTotalTxt").textContent = `/ ${total}${logicalTxt}`;
             document.getElementById("inpFrameNumber").value = String(simTickIdx);
             renderTimelineSurface();
             renderEventPropertiesPanel();
@@ -1154,6 +1378,10 @@
             const resp = await api("/api/status");
             if (!resp.ok) return false;
             appStatus = { ...appStatus, ...(resp.data || {}) };
+            if (!appStatus.compiled_loaded) {
+                previewTicks = [];
+                compiledTickMeta = [];
+            }
             applyUiState();
             return true;
         }
@@ -1617,9 +1845,13 @@
                 return;
             }
             const sparse_targets = !!document.getElementById("inpSparse").checked;
-            const maxDeltaRaw = String(document.getElementById("inpMaxDelta").value || "").trim();
             const body = { sparse_targets };
-            if (maxDeltaRaw) body.max_delta_per_tick = Number(maxDeltaRaw);
+            const gaitParams = getCompileGaitParams();
+            if (!gaitParams.ok) {
+                setStatus(gaitParams.error || "invalid gait controls", "danger");
+                return;
+            }
+            Object.assign(body, gaitParams.payload || {});
             const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
             if (hasTimelineEvents) {
                 body.tick_ms = 20;
@@ -1637,6 +1869,7 @@
 
             const prev = await api("/api/program_preview?count=500");
             previewTicks = prev.ok ? (prev.data.ticks || []) : [];
+            compiledTickMeta = computeCompiledTickMeta(previewTicks);
             previewTickMs = prev.ok ? Number(prev.data?.summary?.tick_ms || 20) : 20;
             appStatus.compiled_summary = prev.ok ? (prev.data?.summary || null) : null;
             appStatus.compiled_loaded = !!previewTicks.length;
@@ -1716,6 +1949,15 @@
 
         document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
         document.getElementById("btnCompile").addEventListener("click", compileProgram);
+        document.getElementById("inpMaxDelta").addEventListener("input", () => {
+            updateGaitControlsState();
+        });
+        document.getElementById("inpEaseInFrames").addEventListener("input", () => {
+            updateGaitControlsState();
+        });
+        document.getElementById("inpEaseOutFrames").addEventListener("input", () => {
+            updateGaitControlsState();
+        });
 
         document.getElementById("btnFramePrev").addEventListener("click", async () => {
             stopPlayback();

@@ -728,6 +728,8 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(client.post("/api/sim_seek", json={"tick": "abc"}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": "abc"}).status_code, 400)
         self.assertEqual(client.post("/api/compile_program", json={"max_delta_per_tick": 0}).status_code, 400)
+        self.assertEqual(client.post("/api/compile_program", json={"ease_in_frames": "abc"}).status_code, 400)
+        self.assertEqual(client.post("/api/compile_program", json={"ease_out_frames": 0}).status_code, 400)
 
     def test_program_timeline_event_crud_contracts(self) -> None:
         client = self.program_app.app.test_client()

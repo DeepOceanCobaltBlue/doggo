@@ -32,6 +32,8 @@ def compile_timeline(
     sparse_targets: bool = True,
     max_delta_per_tick: Optional[int] = None,
     apply_slew_limits: bool = True,
+    gait_ease_in_frames: int = 2,
+    gait_ease_out_frames: int = 2,
 ) -> CompiledTimeline:
     keys = [str(k) for k in location_keys]
     if program.tick_ms < 1:
@@ -68,11 +70,15 @@ def compile_timeline(
 
             frame_angles = dict(current_angles)
             for cmd in step.commands:
-                cmd_ticks = per_cmd_ticks[cmd.location]
-                alpha = min(1.0, float(i) / float(cmd_ticks))
-                eased = easing_value(cmd.easing, alpha)
-                start = int(step_start_angles[cmd.location])
-                frame_angles[cmd.location] = _interp_angle(start, int(cmd.target_angle), eased)
+                if max_delta_per_tick is None:
+                    cmd_ticks = per_cmd_ticks[cmd.location]
+                    alpha = min(1.0, float(i) / float(cmd_ticks))
+                    eased = easing_value(cmd.easing, alpha)
+                    start = int(step_start_angles[cmd.location])
+                    frame_angles[cmd.location] = _interp_angle(start, int(cmd.target_angle), eased)
+                else:
+                    # In max-delta gait mode, gait planner owns trajectory shaping.
+                    frame_angles[cmd.location] = clamp_int(int(cmd.target_angle), 0, 270)
 
             current_angles = frame_angles
 
@@ -105,5 +111,10 @@ def compile_timeline(
     if apply_slew_limits:
         out = apply_command_slew_limits(out, program)
     if max_delta_per_tick is not None:
-        out = apply_global_max_delta_per_tick(out, int(max_delta_per_tick))
+        out = apply_global_max_delta_per_tick(
+            out,
+            int(max_delta_per_tick),
+            ease_in_frames=int(gait_ease_in_frames),
+            ease_out_frames=int(gait_ease_out_frames),
+        )
     return out
