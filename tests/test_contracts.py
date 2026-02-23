@@ -904,5 +904,44 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(seek.status_code, 200)
         self.assertTrue(seek.get_json()["ok"])
 
+    def test_timeline_compile_preserves_empty_frame_offsets(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 10,
+                "end_frame": 10,
+                "angle_deg": 180,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        compiled = client.post("/api/timeline/compile", json={"tick_ms": 20, "sparse_targets": True})
+        self.assertEqual(compiled.status_code, 200)
+        self.assertTrue(compiled.get_json()["ok"])
+
+        # Before frame 10 the joint should still be at baseline.
+        pre = client.post("/api/sim_seek", json={"tick": 1})
+        self.assertEqual(pre.status_code, 200)
+        pre_body = pre.get_json()
+        self.assertEqual(int(pre_body["sim_angles"]["front_left_hip"]), 135)
+
+        at = client.post("/api/sim_seek", json={"tick": 10})
+        self.assertEqual(at.status_code, 200)
+        at_body = at.get_json()
+        self.assertEqual(int(at_body["sim_angles"]["front_left_hip"]), 135)
+
+        post = client.post("/api/sim_seek", json={"tick": 11})
+        self.assertEqual(post.status_code, 200)
+        post_body = post.get_json()
+        self.assertEqual(int(post_body["sim_angles"]["front_left_hip"]), 180)
+
 if __name__ == "__main__":
     unittest.main()

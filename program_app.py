@@ -629,13 +629,16 @@ class ProgramState:
         max_frame = max(int(e.end_frame) for e in events_sorted)
 
         steps: List[Dict[str, Any]] = []
+        current_targets: Dict[str, int] = {
+            str(k): clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys
+        }
         for frame in range(max_frame + 1):
-            targets: Dict[str, int] = {}
+            frame_updates: Dict[str, int] = {}
             for ev in events_sorted:
                 if ev.start_frame <= frame <= ev.end_frame:
-                    targets[ev.joint_key] = int(ev.angle_deg)
-            if not targets:
-                continue
+                    frame_updates[ev.joint_key] = clamp_int(int(ev.angle_deg), 0, 270)
+            for k, v in frame_updates.items():
+                current_targets[str(k)] = int(v)
             commands = [
                 {
                     "location": k,
@@ -643,7 +646,7 @@ class ProgramState:
                     "duration_ms": tick_ms_i,
                     "easing": "linear",
                 }
-                for k, v in sorted(targets.items())
+                for k, v in sorted(current_targets.items())
             ]
             steps.append({"step_id": f"f{frame}", "commands": commands})
 
