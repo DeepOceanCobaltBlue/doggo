@@ -31,7 +31,6 @@ from motion_core import (
 )
 from motion_core.stance_slide_generator import generate_stance_slide_events
 from motion_core.stance_slide_generator import joint_keys_for_side_leg
-from motion_core.taskspace_kinematics import leg_descriptor, toe_from_leg_angles
 from sim_core import sim_store
 from sim_core.kinematics import build_leg_capsules_for_side
 
@@ -959,11 +958,6 @@ class ProgramState:
             return False, {}, "ground_mode must be 'other_leg_tangent' or 'fixed_value'"
 
         hip_key, knee_key = joint_keys_for_side_leg(side_s, leg_s)
-        side_vars = dyn.get(side_s, None)
-        if not isinstance(side_vars, dict):
-            return False, {}, f"missing dynamic limits for side {side_s}"
-        desc = leg_descriptor(side_s, leg_s, side_vars)
-        hip_now = int(start_state.get(hip_key, 135))
         knee_now = int(start_state.get(knee_key, 135))
 
         knee_loc_cfg = cfg_locs.get(knee_key, {})
@@ -974,53 +968,77 @@ class ProgramState:
             k_lo, k_hi = k_hi, k_lo
         knee_now = clamp_int(knee_now, k_lo, k_hi)
 
-        ground_y_used = float(ground_y_mm)
-        if gmode == "other_leg_tangent":
+        def _angles_pack_for_side() -> Dict[str, float]:
             if side_s == "left":
-                angles_pack = {
+                return {
                     "front_hip": float(start_state.get("front_left_hip", 135)),
                     "front_knee": float(start_state.get("front_left_knee", 135)),
                     "rear_hip": float(start_state.get("rear_left_hip", 135)),
                     "rear_knee": float(start_state.get("rear_left_knee", 135)),
                 }
-            else:
-                angles_pack = {
-                    "front_hip": float(start_state.get("front_right_hip", 135)),
-                    "front_knee": float(start_state.get("front_right_knee", 135)),
-                    "rear_hip": float(start_state.get("rear_right_hip", 135)),
-                    "rear_knee": float(start_state.get("rear_right_knee", 135)),
-                }
+            return {
+                "front_hip": float(start_state.get("front_right_hip", 135)),
+                "front_knee": float(start_state.get("front_right_knee", 135)),
+                "rear_hip": float(start_state.get("rear_right_hip", 135)),
+                "rear_knee": float(start_state.get("rear_right_knee", 135)),
+            }
+
+        def _shin_capsule_for_leg(angles_pack: Dict[str, float], which_leg: str):
             front_caps, rear_caps = build_leg_capsules_for_side(dyn, side_s, angles_pack)
-            other_caps = rear_caps if leg_s == "front" else front_caps
-            if other_caps:
-                ground_y_used = min(min(float(c.a[1]), float(c.b[1])) - float(c.r) for c in other_caps)
+            if which_leg == "front":
+                return front_caps[1] if len(front_caps) > 1 else None
+            return rear_caps[1] if len(rear_caps) > 1 else None
+
+        def _active_contact_line_y(knee_cmd: int) -> Tuple[float, float]:
+            ap = _angles_pack_for_side()
+            if leg_s == "front":
+                ap["front_knee"] = float(knee_cmd)
+            else:
+                ap["rear_knee"] = float(knee_cmd)
+            shin = _shin_capsule_for_leg(ap, leg_s)
+            if shin is None:
+                return float("inf"), 0.0
+            # Horizontal line tangent to distal end circle of shin capsule.
+            return float(shin.b[1]) - float(shin.r), float(shin.b[0])
+
+        ground_y_used = float(ground_y_mm)
+        if gmode == "other_leg_tangent":
+            other_leg = "rear" if leg_s == "front" else "front"
+            shin_other = _shin_capsule_for_leg(_angles_pack_for_side(), other_leg)
+            if shin_other is not None:
+                # Same reference: tangent line at distal end of opposite shin capsule.
+                ground_y_used = float(shin_other.b[1]) - float(shin_other.r)
 
         target = knee_now
         hit_ground = False
-        toe_at_target = toe_from_leg_angles(desc, hip_now, target)
+        toe_y_target, toe_x_target = _active_contact_line_y(target)
         best_k = int(knee_now)
-        best_toe = toe_at_target
-        best_err = abs(float(toe_at_target[1]) - float(ground_y_used))
-        if float(toe_at_target[1]) <= float(ground_y_used):
+        best_toe_y = float(toe_y_target)
+        best_toe_x = float(toe_x_target)
+        best_err = abs(float(toe_y_target) - float(ground_y_used))
+        if float(toe_y_target) <= float(ground_y_used):
             hit_ground = True
         else:
             # Requested behavior: decrease knee command angle while checking ground line.
             for k in range(int(knee_now) - 1, int(k_lo) - 1, -1):
-                toe = toe_from_leg_angles(desc, hip_now, k)
-                err = abs(float(toe[1]) - float(ground_y_used))
+                toe_y, toe_x = _active_contact_line_y(k)
+                err = abs(float(toe_y) - float(ground_y_used))
                 if err < best_err:
                     best_err = float(err)
                     best_k = int(k)
-                    best_toe = toe
-                if float(toe[1]) <= float(ground_y_used):
+                    best_toe_y = float(toe_y)
+                    best_toe_x = float(toe_x)
+                if float(toe_y) <= float(ground_y_used):
                     target = int(k)
-                    toe_at_target = toe
+                    toe_y_target = float(toe_y)
+                    toe_x_target = float(toe_x)
                     hit_ground = True
                     break
             if not hit_ground:
-                # No crossing in the requested direction: pick closest-to-ground candidate.
+                # No crossing in requested direction: pick closest-to-ground candidate from decrement sweep.
                 target = int(best_k)
-                toe_at_target = best_toe
+                toe_y_target = float(best_toe_y)
+                toe_x_target = float(best_toe_x)
 
         inserted = 0
         skipped = 0
@@ -1077,8 +1095,9 @@ class ProgramState:
                 "ground_y_mm": float(ground_y_used),
                 "knee_start_angle": int(knee_now),
                 "knee_target_angle": int(target),
-                "toe_y_at_target_mm": float(toe_at_target[1]),
-                "ground_error_mm": float(abs(float(toe_at_target[1]) - float(ground_y_used))),
+                "toe_y_at_target_mm": float(toe_y_target),
+                "toe_x_at_target_mm": float(toe_x_target),
+                "ground_error_mm": float(abs(float(toe_y_target) - float(ground_y_used))),
                 "hit_ground": bool(hit_ground),
                 "inserted_count": int(inserted),
                 "skipped_count": int(skipped),

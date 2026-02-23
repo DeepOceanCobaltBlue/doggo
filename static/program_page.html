@@ -2311,7 +2311,7 @@
             await loadTimelineEvents();
             await refreshStatus();
             setStatus(
-                `knee drop: ${inserted} inserted, ${skipped} skipped, ${startA} -> ${targetA}${hit ? " (ground reached)" : " (limit reached)"} [${gMode || "ground"} y=${groundY.toFixed(2)}]`,
+                `knee drop: ${inserted} inserted, ${skipped} skipped, ${startA} -> ${targetA}${hit ? " (ground reached)" : " (closest/limit)"} [${gMode || "ground"} y=${groundY.toFixed(2)}]`,
                 "ok",
             );
         }
