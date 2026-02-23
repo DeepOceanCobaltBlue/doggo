@@ -594,8 +594,7 @@
                 <div class="row" style="margin-top:8px;">
                     <button id="btnRefreshExports" title="Refresh exported file list from ./exports">Refresh Exports</button>
                     <button id="btnImportExported" title="Load selected exported program JSON from ./exports">Import</button>
-                    <button id="btnBrowseImport" title="Pick a local JSON file to import." style="padding:6px 9px; font-size:12px;">Browse</button>
-                    <input id="inpBrowseImport" type="file" accept=".json,application/json" style="display:none;" />
+                    <button id="btnBrowseImport" title="Open the exports folder in your file manager." style="padding:6px 9px; font-size:12px;">Open Folder</button>
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
@@ -756,7 +755,6 @@
         const TIMELINE_TAIL_PAD_FRAMES = 60;
         let simTickIdx = 0;
         let playPollTimer = null;
-        let lastBrowseStartHandle = null;
         let selectedFrameSide = "left";
         let timelineSide = "left";
         let timelineSyncEnabled = true;
@@ -2143,80 +2141,17 @@
             setStatus(`imported ${filename}`, "ok");
         }
 
-        async function importProgramFromPickedFile(file) {
-            if (!file) return;
+        async function openExportsFolder() {
             if (!appStatus.config_loaded) {
                 setStatus("load config first", "danger");
                 return;
             }
-            if (appStatus.sim_runtime_running) {
-                setStatus("stop playback before importing", "danger");
-                return;
-            }
-            let rawText = "";
-            try {
-                rawText = await file.text();
-            } catch (_e) {
-                setStatus("failed to read selected file", "danger");
-                return;
-            }
-            let payload = null;
-            try {
-                payload = JSON.parse(rawText);
-            } catch (_e) {
-                setStatus("selected file is not valid JSON", "danger");
-                return;
-            }
-            if (!payload || typeof payload !== "object") {
-                setStatus("selected file must contain a JSON object", "danger");
-                return;
-            }
-            const resp = await api("/api/program_import_payload", "POST", payload);
+            const resp = await api("/api/exports/open", "POST", {});
             if (!resp.ok) {
-                setStatus(resp.data?.message || resp.data?.error || "import failed", "danger");
+                setStatus(resp.data?.message || resp.data?.error || "failed to open exports folder", "danger");
                 return;
             }
-            await refreshStatus();
-            await loadTimelineEvents();
-            await refreshExportsList();
-            setStatus(`imported ${String(file.name || "selected file")}`, "ok");
-        }
-
-        async function browseAndImportProgramFile() {
-            // Best-effort sticky directory in supported browsers.
-            if (typeof window.showOpenFilePicker === "function" && window.isSecureContext) {
-                try {
-                    const pickerOpts = {
-                        id: "doggo-program-import",
-                        multiple: false,
-                        types: [
-                            {
-                                description: "JSON files",
-                                accept: { "application/json": [".json"] },
-                            },
-                        ],
-                        excludeAcceptAllOption: false,
-                    };
-                    if (lastBrowseStartHandle) {
-                        pickerOpts.startIn = lastBrowseStartHandle;
-                    } else {
-                        pickerOpts.startIn = "documents";
-                    }
-                    const handles = await window.showOpenFilePicker(pickerOpts);
-                    if (!Array.isArray(handles) || handles.length < 1) return;
-                    const fh = handles[0];
-                    if (!fh) return;
-                    lastBrowseStartHandle = fh;
-                    const file = await fh.getFile();
-                    await importProgramFromPickedFile(file);
-                    return;
-                } catch (_e) {
-                    // User cancel or API unavailable behavior; fall through to input picker.
-                }
-            }
-            const inp = document.getElementById("inpBrowseImport");
-            if (!inp) return;
-            inp.click();
+            setStatus(resp.data?.message || "opened exports folder", "ok");
         }
 
         function stopPlayPoller() {
@@ -2302,16 +2237,7 @@
         });
         document.getElementById("btnImportExported").addEventListener("click", importSelectedExportedProgram);
         document.getElementById("btnBrowseImport").addEventListener("click", async () => {
-            await browseAndImportProgramFile();
-        });
-        document.getElementById("inpBrowseImport").addEventListener("change", async (ev) => {
-            const inputEl = ev.target;
-            const file = inputEl && inputEl.files && inputEl.files.length ? inputEl.files[0] : null;
-            if (file) {
-                await importProgramFromPickedFile(file);
-            }
-            // Reset so selecting the same file again still triggers change.
-            if (inputEl) inputEl.value = "";
+            await openExportsFolder();
         });
         document.getElementById("selExportFile").addEventListener("change", () => {
             applyUiState();

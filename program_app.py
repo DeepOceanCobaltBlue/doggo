@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import time
 import threading
 from dataclasses import dataclass
@@ -565,6 +567,34 @@ class ProgramState:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def open_exports_folder(self) -> Tuple[bool, str]:
+        path_str = str(EXPORTS_DIR.resolve())
+        launchers: List[List[str]] = []
+        if shutil.which("xdg-open"):
+            launchers.append(["xdg-open", path_str])
+        if shutil.which("gio"):
+            launchers.append(["gio", "open", path_str])
+        for name in ("nautilus", "thunar", "dolphin", "nemo", "pcmanfm", "caja"):
+            if shutil.which(name):
+                launchers.append([name, path_str])
+
+        if not launchers:
+            return False, "No supported folder opener found (install xdg-utils or a file manager)"
+
+        errors: List[str] = []
+        for cmd in launchers:
+            try:
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                return True, f"opened exports folder via {cmd[0]}"
+            except Exception as e:
+                errors.append(f"{cmd[0]}: {e}")
+        return False, "; ".join(errors) if errors else "Failed to open exports folder"
+
     def save_export_program(self, filename: Optional[str] = None) -> Dict[str, Any]:
         out = self.export_program()
         if not out.get("ok"):
@@ -1032,6 +1062,12 @@ def api_program_export_save():
 def api_exports_list():
     out = state.list_export_files()
     return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.post("/api/exports/open")
+def api_exports_open():
+    ok, msg = state.open_exports_folder()
+    return jsonify({"ok": ok, "message": msg}), (200 if ok else 400)
 
 
 @app.post("/api/program_import")
