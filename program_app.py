@@ -1006,6 +1006,9 @@ class ProgramState:
         start_state = self._state_at_source_frame(int(start_frame))
         if not start_state:
             start_state = dict(fallback_state)
+        # Use the active hip angle at the insert frame (reconstructed from timeline),
+        # falling back to current sim pose only if needed.
+        hip_now = int(start_state.get(hip_key, fallback_state.get(hip_key, 135)))
         knee_now = int(start_state.get(knee_key, 135))
 
         knee_loc_cfg = cfg_locs.get(knee_key, {})
@@ -1018,18 +1021,28 @@ class ProgramState:
 
         def _angles_pack_for_side() -> Dict[str, float]:
             if side_s == "left":
-                return {
+                out = {
                     "front_hip": float(start_state.get("front_left_hip", 135)),
                     "front_knee": float(start_state.get("front_left_knee", 135)),
                     "rear_hip": float(start_state.get("rear_left_hip", 135)),
                     "rear_knee": float(start_state.get("rear_left_knee", 135)),
                 }
-            return {
+                if leg_s == "front":
+                    out["front_hip"] = float(hip_now)
+                else:
+                    out["rear_hip"] = float(hip_now)
+                return out
+            out = {
                 "front_hip": float(start_state.get("front_right_hip", 135)),
                 "front_knee": float(start_state.get("front_right_knee", 135)),
                 "rear_hip": float(start_state.get("rear_right_hip", 135)),
                 "rear_knee": float(start_state.get("rear_right_knee", 135)),
             }
+            if leg_s == "front":
+                out["front_hip"] = float(hip_now)
+            else:
+                out["rear_hip"] = float(hip_now)
+            return out
 
         def _shin_capsule_for_leg(angles_pack: Dict[str, float], which_leg: str):
             front_caps, rear_caps = build_leg_capsules_for_side(dyn, side_s, angles_pack)
