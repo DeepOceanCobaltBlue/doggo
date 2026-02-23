@@ -582,6 +582,18 @@
                         <span title="When enabled, compiled ticks only include joints that changed. When disabled, every tick includes all joints.">sparse targets</span>
                     </label>
                 </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="inpPlaybackSpeed">playback speed scale</label>
+                    <input
+                        id="inpPlaybackSpeed"
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        value="2.5"
+                        placeholder="speed_scale"
+                        title="Runtime playback speed scale. Higher values play slower. Minimum is 0.25."
+                    />
+                </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="fieldLabel" for="inpMaxDelta">gait max delta / tick</label>
                     <input
@@ -626,11 +638,11 @@
                 <summary>Event Properties</summary>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" for="evtStart">start frame</label>
-                    <input id="evtStart" type="number" min="0" step="1" disabled />
+                    <input id="evtStart" type="number" min="1" step="1" disabled />
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" for="evtEnd">end frame</label>
-                    <input id="evtEnd" type="number" min="0" step="1" disabled />
+                    <input id="evtEnd" type="number" min="1" step="1" disabled />
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" for="evtAngle">angle</label>
@@ -731,6 +743,7 @@
         let selectedEventId = null;
         let dragState = null;
         let createEventState = null;
+        const MIN_SOURCE_FRAME = 1;
         let appStatus = {
             config_loaded: false,
             program_loaded: false,
@@ -808,7 +821,7 @@
         function frameFromClientX(rowEl, viewport, clientX) {
             const rect = rowEl.getBoundingClientRect();
             const xPx = Math.max(0, (clientX - rect.left) + viewport.scrollLeft);
-            return Math.max(0, Math.floor(xPx / TIMELINE_STEP_PX));
+            return Math.max(MIN_SOURCE_FRAME, Math.floor(xPx / TIMELINE_STEP_PX));
         }
 
         function timelineJointKeysForSide(side) {
@@ -893,8 +906,8 @@
                 await loadTimelineEvents();
                 return;
             }
-            if (startVal < 0 || endVal < 0) {
-                setEventError("start and end frame must be >= 0");
+            if (startVal < MIN_SOURCE_FRAME || endVal < MIN_SOURCE_FRAME) {
+                setEventError(`start and end frame must be >= ${MIN_SOURCE_FRAME}`);
                 await loadTimelineEvents();
                 return;
             }
@@ -946,7 +959,7 @@
             if (!Number.isFinite(delta) || delta === 0) return;
 
             const span = Math.max(0, Number(evt.end_frame) - Number(evt.start_frame));
-            const nextStart = Math.max(0, Number(evt.start_frame) + delta);
+            const nextStart = Math.max(MIN_SOURCE_FRAME, Number(evt.start_frame) + delta);
             const nextEnd = nextStart + span;
             const resp = await api(`/api/timeline/events/${evt.id}`, "PATCH", {
                 start_frame: nextStart,
@@ -1050,8 +1063,8 @@
             createEventState = null;
             renderTimelineSurface();
 
-            const startFrame = Math.min(Number(created.startFrame), Number(created.endFrame));
-            const endFrame = Math.max(Number(created.startFrame), Number(created.endFrame));
+            const startFrame = Math.max(MIN_SOURCE_FRAME, Math.min(Number(created.startFrame), Number(created.endFrame)));
+            const endFrame = Math.max(MIN_SOURCE_FRAME, Math.max(Number(created.startFrame), Number(created.endFrame)));
             const defaultAngle = Math.max(0, Math.min(270, Number(simAngles[created.joint] ?? 135)));
             const resp = await api("/api/timeline/events", "POST", {
                 side: created.side,
@@ -1081,13 +1094,13 @@
             let nextEnd = dragState.originEnd;
 
             if (dragState.mode === "move") {
-                nextStart = Math.max(0, dragState.originStart + deltaFrames);
+                nextStart = Math.max(MIN_SOURCE_FRAME, dragState.originStart + deltaFrames);
                 const span = dragState.originEnd - dragState.originStart;
                 nextEnd = nextStart + span;
             } else if (dragState.mode === "resize_left") {
-                nextStart = Math.max(0, Math.min(dragState.originEnd, dragState.originStart + deltaFrames));
+                nextStart = Math.max(MIN_SOURCE_FRAME, Math.min(dragState.originEnd, dragState.originStart + deltaFrames));
             } else if (dragState.mode === "resize_right") {
-                nextEnd = Math.max(dragState.originStart, dragState.originEnd + deltaFrames);
+                nextEnd = Math.max(Math.max(MIN_SOURCE_FRAME, dragState.originStart), dragState.originEnd + deltaFrames);
             }
 
             evt.start_frame = nextStart;
@@ -1184,6 +1197,16 @@
                     ease_out_frames: easeOut,
                 },
             };
+        }
+
+        function getPlaybackSpeedParam() {
+            const raw = String(document.getElementById("inpPlaybackSpeed").value || "").trim();
+            if (!raw) return { ok: true, value: null };
+            const speed = Number.parseFloat(raw);
+            if (!Number.isFinite(speed) || speed < 0.25) {
+                return { ok: false, error: "playback speed scale must be numeric and >= 0.25" };
+            }
+            return { ok: true, value: speed };
         }
 
         function renderTimelineSurface() {
@@ -1387,6 +1410,7 @@
             document.getElementById("btnFramePause").disabled = !isPlaying;
             document.getElementById("btnFrameStop").disabled = !hasCompiled && !isPlaying;
             document.getElementById("inpFrameNumber").disabled = !hasCompiled || isPlaying;
+            document.getElementById("inpPlaybackSpeed").disabled = isPlaying;
             document.getElementById("btnFramePlay").textContent = isPlaying ? "Playing..." : "Play";
             updateGaitControlsState();
 
@@ -2025,7 +2049,14 @@
                 setStatus("produce timeline before playback", "danger");
                 return;
             }
-            const resp = await api("/api/sim_play/start", "POST", { loop: !!timelineLoopEnabled });
+            const speed = getPlaybackSpeedParam();
+            if (!speed.ok) {
+                setStatus(speed.error || "invalid playback speed", "danger");
+                return;
+            }
+            const body = { loop: !!timelineLoopEnabled };
+            if (speed.value !== null) body.speed_scale = speed.value;
+            const resp = await api("/api/sim_play/start", "POST", body);
             if (!resp.ok) {
                 setStatus(resp.data?.message || resp.data?.error || "play failed", "danger");
                 return;
