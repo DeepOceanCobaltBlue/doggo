@@ -1205,6 +1205,7 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertIn("result", body)
         self.assertIn("knee_target_angle", body["result"])
         self.assertIn("inserted_count", body["result"])
+        self.assertIn("ground_error_mm", body["result"])
 
     def test_timeline_event_spans_motion_over_event_frames(self) -> None:
         client = self.program_app.app.test_client()

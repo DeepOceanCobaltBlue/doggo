@@ -998,16 +998,29 @@ class ProgramState:
         target = knee_now
         hit_ground = False
         toe_at_target = toe_from_leg_angles(desc, hip_now, target)
+        best_k = int(knee_now)
+        best_toe = toe_at_target
+        best_err = abs(float(toe_at_target[1]) - float(ground_y_used))
         if float(toe_at_target[1]) <= float(ground_y_used):
             hit_ground = True
         else:
+            # Requested behavior: decrease knee command angle while checking ground line.
             for k in range(int(knee_now) - 1, int(k_lo) - 1, -1):
                 toe = toe_from_leg_angles(desc, hip_now, k)
-                target = int(k)
-                toe_at_target = toe
+                err = abs(float(toe[1]) - float(ground_y_used))
+                if err < best_err:
+                    best_err = float(err)
+                    best_k = int(k)
+                    best_toe = toe
                 if float(toe[1]) <= float(ground_y_used):
+                    target = int(k)
+                    toe_at_target = toe
                     hit_ground = True
                     break
+            if not hit_ground:
+                # No crossing in the requested direction: pick closest-to-ground candidate.
+                target = int(best_k)
+                toe_at_target = best_toe
 
         inserted = 0
         skipped = 0
@@ -1065,6 +1078,7 @@ class ProgramState:
                 "knee_start_angle": int(knee_now),
                 "knee_target_angle": int(target),
                 "toe_y_at_target_mm": float(toe_at_target[1]),
+                "ground_error_mm": float(abs(float(toe_at_target[1]) - float(ground_y_used))),
                 "hit_ground": bool(hit_ground),
                 "inserted_count": int(inserted),
                 "skipped_count": int(skipped),
