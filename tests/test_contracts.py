@@ -760,6 +760,61 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(int(program["tick_ms"]), 20)
         self.assertGreater(len(program["steps"]), 0)
 
+    def test_program_export_save_list_and_import_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 1,
+                "end_frame": 3,
+                "angle_deg": 150,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        produced = client.post(
+            "/api/timeline/compile",
+            json={
+                "tick_ms": 20,
+                "sparse_targets": True,
+                "max_delta_per_tick": 5,
+                "ease_in_frames": 2,
+                "ease_out_frames": 2,
+            },
+        )
+        self.assertEqual(produced.status_code, 200)
+        self.assertTrue(produced.get_json()["ok"])
+
+        save = client.post("/api/program_export/save", json={})
+        self.assertEqual(save.status_code, 200)
+        save_body = save.get_json()
+        self.assertTrue(save_body["ok"])
+        fname = str(save_body["filename"])
+        self.assertTrue(fname.endswith(".json"))
+
+        listed = client.get("/api/exports")
+        self.assertEqual(listed.status_code, 200)
+        list_body = listed.get_json()
+        self.assertTrue(list_body["ok"])
+        file_names = [str(x.get("name", "")) for x in list_body.get("files", [])]
+        self.assertIn(fname, file_names)
+
+        bad = client.post("/api/program_import", json={"filename": "does_not_exist.json"})
+        self.assertEqual(bad.status_code, 400)
+
+        imported = client.post("/api/program_import", json={"filename": fname})
+        self.assertEqual(imported.status_code, 200)
+        import_body = imported.get_json()
+        self.assertTrue(import_body["ok"])
+        self.assertTrue(bool(import_body["status"]["program_loaded"]))
+
     def test_program_gait_apply_and_sim_playback_contracts(self) -> None:
         client = self.program_app.app.test_client()
 

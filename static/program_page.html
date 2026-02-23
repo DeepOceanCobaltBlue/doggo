@@ -574,7 +574,17 @@
                     <button class="primary" id="btnLoadConfig">Load Config</button>
                     <button class="primary" id="btnLoadProgram">Load Program</button>
                     <button class="primary" id="btnProduce" title="Compiles and applies gait settings to the full timeline/program.">Produce</button>
-                    <button id="btnExport" title="Exports the currently produced timeline as a program JSON file.">Export</button>
+                    <button id="btnExport" title="Exports the currently produced timeline to the exports folder.">Export</button>
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="selExportFile">import exported file</label>
+                    <select id="selExportFile" title="Files found in ./exports">
+                        <option value="">(no exported files)</option>
+                    </select>
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <button id="btnRefreshExports" title="Refresh exported file list from ./exports">Refresh Exports</button>
+                    <button id="btnImportExported" title="Load selected exported program JSON from ./exports">Import</button>
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
@@ -1402,6 +1412,10 @@
                 ? "Stop playback before producing."
                 : "Compiles and applies gait settings to the full timeline/program.";
             document.getElementById("btnExport").disabled = !hasCompiled;
+            document.getElementById("btnRefreshExports").disabled = !hasConfig || isPlaying;
+            const selectedExport = String(document.getElementById("selExportFile").value || "").trim();
+            document.getElementById("btnImportExported").disabled = !hasConfig || isPlaying || !selectedExport;
+            document.getElementById("selExportFile").disabled = !hasConfig || isPlaying;
             document.getElementById("btnFramePrev").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFrameMinus10").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFramePlus10").disabled = !hasCompiled || isPlaying;
@@ -1985,28 +1999,84 @@
                 setStatus("produce timeline before export", "danger");
                 return;
             }
-            const resp = await api("/api/program_export");
+            const resp = await api("/api/program_export/save", "POST", {});
             if (!resp.ok) {
                 setStatus(resp.data?.error || "export failed", "danger");
                 return;
             }
-            const program = resp.data?.program;
-            if (!program || typeof program !== "object") {
-                setStatus("export payload missing program", "danger");
+            const filename = String(resp.data?.filename || "").trim();
+            if (!filename) {
+                setStatus("export succeeded but filename missing", "danger");
                 return;
             }
-            const programId = String(program.program_id || "program_produced").trim() || "program_produced";
-            const blob = new Blob([JSON.stringify(program, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${programId}.json`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-            const stepCount = Array.isArray(program.steps) ? program.steps.length : 0;
-            setStatus(`exported ${programId}.json (${stepCount} steps)`, "ok");
+            await refreshExportsList({ preferName: filename });
+            setStatus(`exported ${filename} to ./exports`, "ok");
+        }
+
+        async function refreshExportsList(opts = {}) {
+            const preferName = String(opts.preferName || "").trim();
+            const sel = document.getElementById("selExportFile");
+            const prev = String(sel.value || "").trim();
+            const resp = await api("/api/exports");
+            if (!resp.ok) {
+                sel.innerHTML = "";
+                const empty = document.createElement("option");
+                empty.value = "";
+                empty.textContent = "(failed to load exports)";
+                sel.appendChild(empty);
+                applyUiState();
+                return false;
+            }
+            const files = Array.isArray(resp.data?.files) ? resp.data.files : [];
+            sel.innerHTML = "";
+            if (!files.length) {
+                const empty = document.createElement("option");
+                empty.value = "";
+                empty.textContent = "(no exported files)";
+                sel.appendChild(empty);
+                applyUiState();
+                return true;
+            }
+            for (const f of files) {
+                const name = String(f?.name || "").trim();
+                if (!name) continue;
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                sel.appendChild(opt);
+            }
+            const preferred = preferName || prev;
+            if (preferred) {
+                const match = Array.from(sel.options).find((o) => String(o.value) === preferred);
+                if (match) sel.value = preferred;
+            }
+            if (!sel.value && sel.options.length > 0) sel.value = sel.options[0].value;
+            applyUiState();
+            return true;
+        }
+
+        async function importSelectedExportedProgram() {
+            if (!appStatus.config_loaded) {
+                setStatus("load config first", "danger");
+                return;
+            }
+            if (appStatus.sim_runtime_running) {
+                setStatus("stop playback before importing", "danger");
+                return;
+            }
+            const sel = document.getElementById("selExportFile");
+            const filename = String(sel.value || "").trim();
+            if (!filename) {
+                setStatus("select an exported file to import", "danger");
+                return;
+            }
+            const resp = await api("/api/program_import", "POST", { filename });
+            if (!resp.ok) {
+                setStatus(resp.data?.message || resp.data?.error || "import failed", "danger");
+                return;
+            }
+            await refreshStatus();
+            setStatus(`imported ${filename}`, "ok");
         }
 
         function stopPlayPoller() {
@@ -2080,11 +2150,20 @@
             setStatus("config loaded", "ok");
             await refreshStatus();
             await refreshSimState();
+            await refreshExportsList();
         });
 
         document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
         document.getElementById("btnProduce").addEventListener("click", produceProgram);
         document.getElementById("btnExport").addEventListener("click", exportProgram);
+        document.getElementById("btnRefreshExports").addEventListener("click", async () => {
+            await refreshExportsList();
+            setStatus("exports refreshed", "muted");
+        });
+        document.getElementById("btnImportExported").addEventListener("click", importSelectedExportedProgram);
+        document.getElementById("selExportFile").addEventListener("change", () => {
+            applyUiState();
+        });
         document.getElementById("inpMaxDelta").addEventListener("input", () => {
             updateGaitControlsState();
         });
@@ -2233,10 +2312,12 @@
                 await refreshStatus();
                 await refreshSimState();
                 await loadTimelineEvents();
+                await refreshExportsList();
             } else {
                 setStatus(loadResp.data?.message || "auto-load config failed", "danger");
                 await refreshStatus();
                 await loadTimelineEvents();
+                await refreshExportsList();
             }
         })();
         renderViz();

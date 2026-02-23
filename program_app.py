@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import time
 import threading
 from dataclasses import dataclass
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,12 +34,14 @@ CONFIG_DIR = Path("config")
 CONFIG_FILE = CONFIG_DIR / "config_file.json"
 LOCATION_ORDER_FILE = CONFIG_DIR / "location_order.json"
 DYN_VARS_FILE = CONFIG_DIR / "dynamic_limits.json"
+EXPORTS_DIR = Path("exports")
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 PROGRAM_PAGE = "program_page.html"
 
 LOCATIONS = DOGGO_LOCATIONS
+EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -500,7 +504,14 @@ class ProgramState:
             base_name = str(self.program_name or timeline.program_id or "program").strip() or "program"
             export_program_id = f"{base_name}_produced"
             steps: List[Dict[str, Any]] = []
-            for tick in timeline.ticks:
+            location_keys = list(timeline.location_keys)
+            dense_states = list(self.compiled_dense_states)
+            for idx, tick in enumerate(timeline.ticks):
+                full_state: Dict[str, int] = {}
+                if idx < len(dense_states):
+                    full_state = {str(k): int(v) for k, v in dense_states[idx].items()}
+                else:
+                    full_state = {str(k): clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys}
                 commands = [
                     {
                         "location": str(loc),
@@ -508,7 +519,7 @@ class ProgramState:
                         "duration_ms": tick_ms,
                         "easing": "linear",
                     }
-                    for loc, angle in sorted(dict(tick.targets).items())
+                    for loc, angle in sorted(full_state.items())
                 ]
                 steps.append(
                     {
@@ -526,6 +537,65 @@ class ProgramState:
                 },
                 "summary": summarize_timeline(timeline),
             }
+
+    @staticmethod
+    def _sanitize_export_filename(name: str) -> str:
+        base = Path(str(name).strip()).name
+        if not base:
+            return ""
+        if not base.lower().endswith(".json"):
+            base = f"{base}.json"
+        return base
+
+    def list_export_files(self) -> Dict[str, Any]:
+        try:
+            files: List[Dict[str, Any]] = []
+            for p in EXPORTS_DIR.glob("*.json"):
+                st = p.stat()
+                files.append(
+                    {
+                        "name": p.name,
+                        "size_bytes": int(st.st_size),
+                        "modified_utc": datetime.fromtimestamp(st.st_mtime, UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                    }
+                )
+            files.sort(key=lambda x: x["modified_utc"], reverse=True)
+            return {"ok": True, "files": files}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def save_export_program(self, filename: Optional[str] = None) -> Dict[str, Any]:
+        out = self.export_program()
+        if not out.get("ok"):
+            return out
+        program = out.get("program", {})
+        default_name = f"{str(program.get('program_id', 'program_produced')).strip() or 'program_produced'}.json"
+        safe_name = self._sanitize_export_filename(filename or default_name)
+        if not safe_name:
+            return {"ok": False, "error": "invalid filename"}
+        out_path = EXPORTS_DIR / safe_name
+        try:
+            out_path.write_text(json.dumps(program, indent=2), encoding="utf-8")
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "filename": safe_name, "path": str(out_path), "summary": out.get("summary")}
+
+    def import_export_program(self, filename: str) -> Tuple[bool, str]:
+        safe_name = self._sanitize_export_filename(filename)
+        if not safe_name:
+            return False, "filename is required"
+        p = EXPORTS_DIR / safe_name
+        if not p.exists() or not p.is_file():
+            return False, f"file not found: {safe_name}"
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"failed to read json: {e}"
+        if isinstance(raw, dict) and isinstance(raw.get("program"), dict):
+            raw = raw["program"]
+        if not isinstance(raw, dict):
+            return False, "program file must be a JSON object"
+        return self.load_program_json(raw)
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
@@ -875,6 +945,38 @@ def api_program_preview():
 def api_program_export():
     out = state.export_program()
     return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.post("/api/program_export/save")
+def api_program_export_save():
+    data = request.get_json(force=True) if request.data else {}
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    filename = data.get("filename", None)
+    if filename is not None:
+        filename = str(filename)
+    out = state.save_export_program(filename=filename)
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.get("/api/exports")
+def api_exports_list():
+    out = state.list_export_files()
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.post("/api/program_import")
+def api_program_import():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    filename = str(data.get("filename", "")).strip()
+    if not filename:
+        return jsonify({"ok": False, "error": "filename is required"}), 400
+    ok, msg = state.import_export_program(filename)
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
 
 
 @app.post("/api/load_program_json")
