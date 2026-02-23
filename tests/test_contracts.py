@@ -715,6 +715,51 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(seek.status_code, 200)
         self.assertTrue(seek.get_json()["ok"])
 
+    def test_program_export_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        not_ready = client.get("/api/program_export")
+        self.assertEqual(not_ready.status_code, 400)
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 0,
+                "end_frame": 3,
+                "angle_deg": 150,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        produced = client.post(
+            "/api/timeline/compile",
+            json={
+                "tick_ms": 20,
+                "sparse_targets": True,
+                "max_delta_per_tick": 5,
+                "ease_in_frames": 2,
+                "ease_out_frames": 2,
+            },
+        )
+        self.assertEqual(produced.status_code, 200)
+        self.assertTrue(produced.get_json()["ok"])
+
+        exported = client.get("/api/program_export")
+        self.assertEqual(exported.status_code, 200)
+        body = exported.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("program", body)
+        program = body["program"]
+        self.assertTrue(str(program["program_id"]).endswith("_produced"))
+        self.assertEqual(int(program["tick_ms"]), 20)
+        self.assertGreater(len(program["steps"]), 0)
+
     def test_program_gait_apply_and_sim_playback_contracts(self) -> None:
         client = self.program_app.app.test_client()
 

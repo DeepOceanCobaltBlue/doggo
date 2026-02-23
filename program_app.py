@@ -490,6 +490,43 @@ class ProgramState:
             ]
             return {"ok": True, "summary": summarize_timeline(self.compiled_timeline), "ticks": out_ticks}
 
+    def export_program(self) -> Dict[str, Any]:
+        with self._lock:
+            if self.compiled_timeline is None:
+                return {"ok": False, "error": "Program not compiled"}
+
+            timeline = self.compiled_timeline
+            tick_ms = int(timeline.tick_ms)
+            base_name = str(self.program_name or timeline.program_id or "program").strip() or "program"
+            export_program_id = f"{base_name}_produced"
+            steps: List[Dict[str, Any]] = []
+            for tick in timeline.ticks:
+                commands = [
+                    {
+                        "location": str(loc),
+                        "target_angle": int(angle),
+                        "duration_ms": tick_ms,
+                        "easing": "linear",
+                    }
+                    for loc, angle in sorted(dict(tick.targets).items())
+                ]
+                steps.append(
+                    {
+                        "step_id": str(tick.meta.step_id or f"t{int(tick.tick):04d}"),
+                        "commands": commands,
+                    }
+                )
+
+            return {
+                "ok": True,
+                "program": {
+                    "program_id": export_program_id,
+                    "tick_ms": tick_ms,
+                    "steps": steps,
+                },
+                "summary": summarize_timeline(timeline),
+            }
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             return {
@@ -793,6 +830,12 @@ def api_program_preview():
     except Exception:
         count = 200
     out = state.program_preview(count)
+    return jsonify(out), (200 if out.get("ok") else 400)
+
+
+@app.get("/api/program_export")
+def api_program_export():
+    out = state.export_program()
     return jsonify(out), (200 if out.get("ok") else 400)
 
 

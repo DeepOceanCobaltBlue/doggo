@@ -573,8 +573,8 @@
                 <div class="row" style="margin-top:10px;">
                     <button class="primary" id="btnLoadConfig">Load Config</button>
                     <button class="primary" id="btnLoadProgram">Load Program</button>
-                    <button class="primary" id="btnCompile">Compile</button>
-                    <button class="primary" id="btnApplyGait" title="Applies gait profile to the compiled base timeline (requires max_delta_per_tick).">Apply Gait</button>
+                    <button class="primary" id="btnProduce" title="Compiles and applies gait settings to the full timeline/program.">Produce</button>
+                    <button id="btnExport" title="Exports the currently produced timeline as a program JSON file.">Export</button>
                 </div>
                 <div class="row" style="margin-top:10px;">
                     <label class="muted" style="display:flex;align-items:center;gap:8px;">
@@ -1367,8 +1367,6 @@
             const hasCompiled = !!appStatus.compiled_loaded;
             const isPlaying = !!appStatus.sim_runtime_running;
             const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
-            const gaitParams = getCompileGaitParams();
-            const gaitReady = !!(gaitParams.ok && Object.prototype.hasOwnProperty.call(gaitParams.payload || {}, "max_delta_per_tick"));
 
             setBadge("dotConfig", "txtConfig", hasConfig, `config: ${hasConfig ? "loaded" : "not loaded"}`);
             setBadge("dotProgram", "txtProgram", hasProgram, `program: ${hasProgram ? "loaded" : "not loaded"}`);
@@ -1376,15 +1374,11 @@
             setBadge("dotPlayback", "txtPlayback", isPlaying, `playback: ${isPlaying ? "running" : (appStatus.sim_runtime_reason || "idle")}`);
 
             document.getElementById("btnLoadProgram").disabled = !hasConfig || isPlaying;
-            document.getElementById("btnCompile").disabled = !(hasConfig && (hasProgram || hasTimelineEvents)) || isPlaying;
-            document.getElementById("btnApplyGait").disabled = !hasCompiled || isPlaying || !gaitReady;
-            document.getElementById("btnApplyGait").title = !hasCompiled
-                ? "Compile a base timeline first."
-                : isPlaying
-                    ? "Stop playback before applying gait."
-                    : !gaitReady
-                        ? "Set max_delta_per_tick (>= 1) to enable gait apply."
-                        : "Applies gait profile to the compiled base timeline.";
+            document.getElementById("btnProduce").disabled = !(hasConfig && (hasProgram || hasTimelineEvents)) || isPlaying;
+            document.getElementById("btnProduce").title = isPlaying
+                ? "Stop playback before producing."
+                : "Compiles and applies gait settings to the full timeline/program.";
+            document.getElementById("btnExport").disabled = !hasCompiled;
             document.getElementById("btnFramePrev").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFrameMinus10").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFramePlus10").disabled = !hasCompiled || isPlaying;
@@ -1920,13 +1914,13 @@
             await refreshStatus();
         }
 
-        async function compileProgram() {
+        async function produceProgram() {
             if (!appStatus.config_loaded) {
                 setStatus("load config first", "danger");
                 return;
             }
             if (appStatus.sim_runtime_running) {
-                setStatus("stop playback before compiling", "danger");
+                setStatus("stop playback before producing", "danger");
                 return;
             }
             const sparse_targets = !!document.getElementById("inpSparse").checked;
@@ -1938,47 +1932,57 @@
                 setStatus("add timeline events or load program JSON first", "danger");
                 return;
             }
-
-            const compileUrl = hasTimelineEvents ? "/api/timeline/compile" : "/api/compile_program";
-            const resp = await api(compileUrl, "POST", body);
-            if (!resp.ok) {
-                setStatus(resp.data?.error || "compile failed", "danger");
-                return;
-            }
-
-            await refreshPreviewTicks();
-            await seekTick(0);
-            setStatus(`compiled base ${hasTimelineEvents ? "timeline" : "program"} (${previewTicks.length} ticks)`, "ok");
-            await refreshStatus();
-        }
-
-        async function applyGaitProfile() {
-            if (!appStatus.compiled_loaded) {
-                setStatus("compile a base timeline first", "danger");
-                return;
-            }
-            if (appStatus.sim_runtime_running) {
-                setStatus("stop playback before applying gait", "danger");
-                return;
-            }
             const gaitParams = getCompileGaitParams();
             if (!gaitParams.ok) {
                 setStatus(gaitParams.error || "invalid gait controls", "danger");
                 return;
             }
-            if (!Object.prototype.hasOwnProperty.call(gaitParams.payload || {}, "max_delta_per_tick")) {
-                setStatus("set max_delta_per_tick to apply gait", "danger");
-                return;
-            }
-            const resp = await api("/api/gait/apply", "POST", gaitParams.payload || {});
+            Object.assign(body, gaitParams.payload || {});
+
+            const compileUrl = hasTimelineEvents ? "/api/timeline/compile" : "/api/compile_program";
+            const resp = await api(compileUrl, "POST", body);
             if (!resp.ok) {
-                setStatus(resp.data?.message || resp.data?.error || "gait apply failed", "danger");
+                setStatus(resp.data?.error || "produce failed", "danger");
                 return;
             }
+
             await refreshPreviewTicks();
             await seekTick(0);
-            setStatus(`gait applied (${previewTicks.length} ticks)`, "ok");
+            const usedGait = Object.prototype.hasOwnProperty.call(gaitParams.payload || {}, "max_delta_per_tick");
+            setStatus(
+                `produced ${hasTimelineEvents ? "timeline" : "program"} (${previewTicks.length} ticks${usedGait ? ", gait active" : ""})`,
+                "ok",
+            );
             await refreshStatus();
+        }
+
+        async function exportProgram() {
+            if (!appStatus.compiled_loaded) {
+                setStatus("produce timeline before export", "danger");
+                return;
+            }
+            const resp = await api("/api/program_export");
+            if (!resp.ok) {
+                setStatus(resp.data?.error || "export failed", "danger");
+                return;
+            }
+            const program = resp.data?.program;
+            if (!program || typeof program !== "object") {
+                setStatus("export payload missing program", "danger");
+                return;
+            }
+            const programId = String(program.program_id || "program_produced").trim() || "program_produced";
+            const blob = new Blob([JSON.stringify(program, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${programId}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            const stepCount = Array.isArray(program.steps) ? program.steps.length : 0;
+            setStatus(`exported ${programId}.json (${stepCount} steps)`, "ok");
         }
 
         function stopPlayPoller() {
@@ -2018,7 +2022,7 @@
 
         async function startPlayback() {
             if (!appStatus.compiled_loaded || previewTicks.length < 1) {
-                setStatus("compile and (optionally) apply gait before playback", "danger");
+                setStatus("produce timeline before playback", "danger");
                 return;
             }
             const resp = await api("/api/sim_play/start", "POST", { loop: !!timelineLoopEnabled });
@@ -2048,8 +2052,8 @@
         });
 
         document.getElementById("btnLoadProgram").addEventListener("click", loadProgramFromInput);
-        document.getElementById("btnCompile").addEventListener("click", compileProgram);
-        document.getElementById("btnApplyGait").addEventListener("click", applyGaitProfile);
+        document.getElementById("btnProduce").addEventListener("click", produceProgram);
+        document.getElementById("btnExport").addEventListener("click", exportProgram);
         document.getElementById("inpMaxDelta").addEventListener("input", () => {
             updateGaitControlsState();
         });
