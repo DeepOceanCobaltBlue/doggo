@@ -84,6 +84,7 @@ class ProgramState:
         self.sim_runtime_running: bool = False
         self.sim_runtime_reason: Optional[str] = None
         self.sim_runtime_loop: bool = True
+        self.sim_runtime_speed_scale: float = 2.5
         self._runtime_thread: Optional[threading.Thread] = None
         self._runtime_engine: Optional[ProgramRuntimeEngine] = None
         self._runtime_stop_event = threading.Event()
@@ -307,7 +308,7 @@ class ProgramState:
             self.sim_tick_idx = max(0, int(tick))
             self.sim_angles = {k: clamp_int(int(v), 0, 270) for k, v in state.items()}
 
-    def _run_sim_loop(self, *, loop: bool) -> None:
+    def _run_sim_loop(self, *, loop: bool, speed_scale: float) -> None:
         while True:
             with self._lock:
                 if self.config is None or self.compiled_timeline is None:
@@ -342,6 +343,7 @@ class ProgramState:
                 state_by_name={"test": start_state},
                 stop_on_clamp=False,
                 realtime=True,
+                realtime_scale=max(0.25, float(speed_scale)),
                 stop_check=lambda: self._runtime_stop_event.is_set(),
                 tick_callback=self._runtime_tick_callback,
             )
@@ -367,7 +369,7 @@ class ProgramState:
             self.sim_runtime_running = False
             self._runtime_engine = None
 
-    def start_sim_playback(self, *, loop: bool = True) -> Tuple[bool, str]:
+    def start_sim_playback(self, *, loop: bool = True, speed_scale: Optional[float] = None) -> Tuple[bool, str]:
         with self._lock:
             if self.config is None:
                 return False, "Config not loaded"
@@ -378,10 +380,15 @@ class ProgramState:
             self.sim_runtime_running = True
             self.sim_runtime_reason = None
             self.sim_runtime_loop = bool(loop)
+            if speed_scale is None:
+                speed = float(self.sim_runtime_speed_scale)
+            else:
+                speed = float(speed_scale)
+            self.sim_runtime_speed_scale = max(0.25, speed)
             self._runtime_stop_event.clear()
             self._runtime_thread = threading.Thread(
                 target=self._run_sim_loop,
-                kwargs={"loop": bool(loop)},
+                kwargs={"loop": bool(loop), "speed_scale": float(self.sim_runtime_speed_scale)},
                 name="program_app_sim_loop",
                 daemon=True,
             )
@@ -404,6 +411,7 @@ class ProgramState:
                 "ok": True,
                 "running": bool(self.sim_runtime_running),
                 "loop": bool(self.sim_runtime_loop),
+                "speed_scale": float(self.sim_runtime_speed_scale),
                 "reason": self.sim_runtime_reason,
                 "tick": int(self.sim_tick_idx),
             }
@@ -756,7 +764,16 @@ def api_sim_play_start():
     if not isinstance(data, dict):
         return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
     loop = bool(data.get("loop", True))
-    ok, msg = state.start_sim_playback(loop=loop)
+    speed_scale_raw = data.get("speed_scale", None)
+    speed_scale = None
+    if speed_scale_raw is not None:
+        try:
+            speed_scale = float(speed_scale_raw)
+        except Exception:
+            return jsonify({"ok": False, "error": "speed_scale must be numeric"}), 400
+        if speed_scale < 0.25:
+            return jsonify({"ok": False, "error": "speed_scale must be >= 0.25"}), 400
+    ok, msg = state.start_sim_playback(loop=loop, speed_scale=speed_scale)
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
 
 

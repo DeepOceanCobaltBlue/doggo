@@ -53,6 +53,7 @@ class ProgramRuntimeEngine:
         state_by_name: Mapping[str, Mapping[str, int]],
         stop_on_clamp: bool = False,
         realtime: bool = False,
+        realtime_scale: float = 1.0,
         stop_check: Optional[Callable[[], bool]] = None,
         tick_callback: Optional[Callable[[int, int, Dict[str, int]], None]] = None,
         now_fn=time.monotonic,
@@ -84,7 +85,8 @@ class ProgramRuntimeEngine:
                 )
 
             if realtime:
-                deadline = start_t + float(packet.t_ms) / 1000.0
+                scale = max(0.01, float(realtime_scale))
+                deadline = start_t + (float(packet.t_ms) / 1000.0) * scale
                 sleep_for = deadline - now_fn()
                 if sleep_for > 0:
                     sleep_fn(sleep_for)
