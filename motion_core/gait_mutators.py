@@ -194,6 +194,9 @@ def apply_global_max_delta_per_tick(
             by_key[k] = path
             step_len = max(step_len, len(path))
         if step_len == 0:
+            # Preserve no-op frame intervals so source-frame timing does not collapse.
+            out_states.append(dict(out_states[-1]))
+            out_metas.append(timeline.ticks[i].meta)
             continue
 
         for j in range(step_len):

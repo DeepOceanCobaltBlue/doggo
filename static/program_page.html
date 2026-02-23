@@ -1341,6 +1341,8 @@
             const hasCompiled = !!appStatus.compiled_loaded;
             const isPlaying = !!appStatus.sim_runtime_running;
             const hasTimelineEvents = Number(appStatus.timeline_event_count || 0) > 0;
+            const gaitParams = getCompileGaitParams();
+            const gaitReady = !!(gaitParams.ok && Object.prototype.hasOwnProperty.call(gaitParams.payload || {}, "max_delta_per_tick"));
 
             setBadge("dotConfig", "txtConfig", hasConfig, `config: ${hasConfig ? "loaded" : "not loaded"}`);
             setBadge("dotProgram", "txtProgram", hasProgram, `program: ${hasProgram ? "loaded" : "not loaded"}`);
@@ -1349,7 +1351,14 @@
 
             document.getElementById("btnLoadProgram").disabled = !hasConfig || isPlaying;
             document.getElementById("btnCompile").disabled = !(hasConfig && (hasProgram || hasTimelineEvents)) || isPlaying;
-            document.getElementById("btnApplyGait").disabled = !hasCompiled || isPlaying;
+            document.getElementById("btnApplyGait").disabled = !hasCompiled || isPlaying || !gaitReady;
+            document.getElementById("btnApplyGait").title = !hasCompiled
+                ? "Compile a base timeline first."
+                : isPlaying
+                    ? "Stop playback before applying gait."
+                    : !gaitReady
+                        ? "Set max_delta_per_tick (>= 1) to enable gait apply."
+                        : "Applies gait profile to the compiled base timeline.";
             document.getElementById("btnFramePrev").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFrameMinus10").disabled = !hasCompiled || isPlaying;
             document.getElementById("btnFramePlus10").disabled = !hasCompiled || isPlaying;
@@ -1417,6 +1426,33 @@
         function toFloat(v, fallback = null) {
             const n = Number.parseFloat(String(v).trim());
             return Number.isFinite(n) ? n : fallback;
+        }
+
+        function enableAutoSelectForTextFields() {
+            document.addEventListener("focusin", (ev) => {
+                const el = ev.target;
+                if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+                if (el instanceof HTMLInputElement) {
+                    const t = String(el.type || "").toLowerCase();
+                    if (["checkbox", "radio", "button", "submit", "reset", "file", "range", "color"].includes(t)) return;
+                }
+                if (typeof el.select === "function") {
+                    el.select();
+                }
+            });
+
+            // Prevent mouseup from clearing the selection immediately after focus.
+            document.addEventListener("mouseup", (ev) => {
+                const el = ev.target;
+                if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+                if (el instanceof HTMLInputElement) {
+                    const t = String(el.type || "").toLowerCase();
+                    if (["checkbox", "radio", "button", "submit", "reset", "file", "range", "color"].includes(t)) return;
+                }
+                if (el.selectionStart !== null && el.selectionEnd !== null && el.selectionStart !== el.selectionEnd) {
+                    ev.preventDefault();
+                }
+            });
         }
 
         function normalizeDeg(deg) {
@@ -2105,6 +2141,7 @@
         document.getElementById("btnNudgeRight").addEventListener("click", async () => {
             await nudgeSelectedEvent(1);
         });
+        enableAutoSelectForTextFields();
         document.addEventListener("keydown", async (ev) => {
             if (keyboardFocusBlocksShortcuts(ev.target)) return;
             if (!selectedEvent()) return;

@@ -116,7 +116,7 @@ class MotionCoreGaitMutatorsTests(unittest.TestCase):
             gait_ease_in_frames=2,
             gait_ease_out_frames=2,
         )
-        expected = [
+        expected_prefix = [
             135,
             137,
             140,
@@ -132,7 +132,11 @@ class MotionCoreGaitMutatorsTests(unittest.TestCase):
             188,
             190,
         ]
-        self.assertEqual([int(t.targets["rear_left_hip"]) for t in timeline.ticks], expected)
+        vals = [int(t.targets["rear_left_hip"]) for t in timeline.ticks]
+        self.assertEqual(vals[: len(expected_prefix)], expected_prefix)
+        self.assertEqual(vals[-1], 190)
+        deltas = [abs(vals[i] - vals[i - 1]) for i in range(1, len(vals))]
+        self.assertTrue(all(d <= 5 for d in deltas))
 
 
 if __name__ == "__main__":

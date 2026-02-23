@@ -943,5 +943,41 @@ class ProgramApiContracts(unittest.TestCase):
         post_body = post.get_json()
         self.assertEqual(int(post_body["sim_angles"]["front_left_hip"]), 180)
 
+    def test_timeline_gait_apply_preserves_delayed_event_offset(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        created = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_hip",
+                "start_frame": 10,
+                "end_frame": 15,
+                "angle_deg": 180,
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertTrue(created.get_json()["ok"])
+
+        compiled = client.post("/api/timeline/compile", json={"tick_ms": 20, "sparse_targets": True})
+        self.assertEqual(compiled.status_code, 200)
+        self.assertTrue(compiled.get_json()["ok"])
+
+        gait = client.post("/api/gait/apply", json={"max_delta_per_tick": 5, "ease_in_frames": 2, "ease_out_frames": 2})
+        self.assertEqual(gait.status_code, 200)
+        self.assertTrue(gait.get_json()["ok"])
+
+        # Frames before source frame 10 should remain baseline after gait apply.
+        pre = client.post("/api/sim_seek", json={"tick": 5})
+        self.assertEqual(pre.status_code, 200)
+        self.assertEqual(int(pre.get_json()["sim_angles"]["front_left_hip"]), 135)
+
+        pre_late = client.post("/api/sim_seek", json={"tick": 10})
+        self.assertEqual(pre_late.status_code, 200)
+        self.assertEqual(int(pre_late.get_json()["sim_angles"]["front_left_hip"]), 135)
+
 if __name__ == "__main__":
     unittest.main()
