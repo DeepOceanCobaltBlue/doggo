@@ -694,20 +694,48 @@
                     </select>
                 </div>
                 <div class="row" style="margin-top:8px;">
-                    <label class="fieldLabel" for="genGroundMode">ground source</label>
-                    <select id="genGroundMode">
+                    <button class="primary" id="btnGenerateStance">Generate Stance</button>
+                </div>
+            </details>
+            <details open style="margin-top:10px;">
+                <summary>Knee Drop Generator</summary>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="dropSide">side</label>
+                    <select id="dropSide">
+                        <option value="left">left</option>
+                        <option value="right">right</option>
+                    </select>
+                    <label class="fieldLabel" for="dropLeg">leg</label>
+                    <select id="dropLeg">
+                        <option value="front">front</option>
+                        <option value="rear">rear</option>
+                    </select>
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="dropStartFrame">start frame</label>
+                    <input id="dropStartFrame" type="number" min="1" step="1" value="1" />
+                    <label class="fieldLabel" for="dropKneeDropDuration">drop duration</label>
+                    <input id="dropKneeDropDuration" type="number" min="1" step="1" value="6" />
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="dropOverlapMode">overlap mode</label>
+                    <select id="dropOverlapMode">
+                        <option value="replace_range">replace range</option>
+                        <option value="skip_overlaps">skip overlaps</option>
+                    </select>
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="dropGroundMode">ground source</label>
+                    <select id="dropGroundMode">
                         <option value="other_leg_tangent">other leg tangent</option>
                         <option value="fixed_value">fixed y value</option>
                     </select>
                 </div>
                 <div class="row" style="margin-top:8px;">
-                    <label class="fieldLabel" for="genGroundY">ground y (mm)</label>
-                    <input id="genGroundY" type="number" step="0.5" value="0" />
-                    <label class="fieldLabel" for="genKneeDropDuration">drop duration</label>
-                    <input id="genKneeDropDuration" type="number" min="1" step="1" value="6" />
+                    <label class="fieldLabel" for="dropGroundY">ground y (mm)</label>
+                    <input id="dropGroundY" type="number" step="0.5" value="0" />
                 </div>
                 <div class="row" style="margin-top:8px;">
-                    <button class="primary" id="btnGenerateStance">Generate Stance</button>
                     <button id="btnDropKneeToGround">Drop Knee To Ground</button>
                 </div>
             </details>
@@ -1325,8 +1353,8 @@
         }
 
         function updateGroundModeUi() {
-            const mode = String(document.getElementById("genGroundMode").value || "other_leg_tangent").trim().toLowerCase();
-            const groundYEl = document.getElementById("genGroundY");
+            const mode = String(document.getElementById("dropGroundMode").value || "other_leg_tangent").trim().toLowerCase();
+            const groundYEl = document.getElementById("dropGroundY");
             if (!groundYEl) return;
             groundYEl.disabled = mode !== "fixed_value";
         }
@@ -2198,13 +2226,13 @@
         }
 
         function getKneeDropParams() {
-            const side = String(document.getElementById("genSide").value || "").trim().toLowerCase();
-            const leg = String(document.getElementById("genLeg").value || "").trim().toLowerCase();
-            const startFrame = Number.parseInt(String(document.getElementById("genStartFrame").value || "").trim(), 10);
-            const durationFrames = Number.parseInt(String(document.getElementById("genKneeDropDuration").value || "").trim(), 10);
-            const groundY = Number.parseFloat(String(document.getElementById("genGroundY").value || "").trim());
-            const groundMode = String(document.getElementById("genGroundMode").value || "other_leg_tangent").trim().toLowerCase();
-            const overlapMode = String(document.getElementById("genOverlapMode").value || "replace_range").trim().toLowerCase();
+            const side = String(document.getElementById("dropSide").value || "").trim().toLowerCase();
+            const leg = String(document.getElementById("dropLeg").value || "").trim().toLowerCase();
+            const startFrame = Number.parseInt(String(document.getElementById("dropStartFrame").value || "").trim(), 10);
+            const durationFrames = Number.parseInt(String(document.getElementById("dropKneeDropDuration").value || "").trim(), 10);
+            const groundY = Number.parseFloat(String(document.getElementById("dropGroundY").value || "").trim());
+            const groundMode = String(document.getElementById("dropGroundMode").value || "other_leg_tangent").trim().toLowerCase();
+            const overlapMode = String(document.getElementById("dropOverlapMode").value || "replace_range").trim().toLowerCase();
 
             if (!["left", "right"].includes(side)) return { ok: false, error: "side must be left/right" };
             if (!["front", "rear"].includes(leg)) return { ok: false, error: "leg must be front/rear" };
@@ -2464,7 +2492,7 @@
         document.getElementById("inpEaseOutFrames").addEventListener("input", () => {
             updateGaitControlsState();
         });
-        document.getElementById("genGroundMode").addEventListener("change", () => {
+        document.getElementById("dropGroundMode").addEventListener("change", () => {
             updateGroundModeUi();
         });
 
