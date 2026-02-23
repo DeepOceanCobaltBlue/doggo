@@ -1124,6 +1124,58 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertEqual(pre_late.status_code, 200)
         self.assertEqual(int(pre_late.get_json()["sim_angles"]["front_left_hip"]), 135)
 
+    def test_timeline_generate_stance_slide_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        bad = client.post(
+            "/api/timeline/generate_stance_slide",
+            json={"side": "left", "leg": "front", "start_frame": 0, "duration_frames": 10, "slide_dx_mm": 20},
+        )
+        self.assertEqual(bad.status_code, 400)
+
+        gen = client.post(
+            "/api/timeline/generate_stance_slide",
+            json={
+                "side": "left",
+                "leg": "front",
+                "start_frame": 1,
+                "duration_frames": 8,
+                "slide_dx_mm": 15.0,
+                "sample_every_n_frames": 2,
+                "overlap_mode": "replace_range",
+            },
+        )
+        self.assertEqual(gen.status_code, 200)
+        body = gen.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("result", body)
+        self.assertGreaterEqual(int(body["result"]["inserted_count"]), 1)
+        self.assertIn("summary", body["result"])
+        self.assertEqual(int(body["result"]["summary"]["start_frame"]), 1)
+
+        # Extreme slide requests should auto-scale down to a reachable profile.
+        big = client.post(
+            "/api/timeline/generate_stance_slide",
+            json={
+                "side": "left",
+                "leg": "front",
+                "start_frame": 20,
+                "duration_frames": 6,
+                "slide_dx_mm": 1000.0,
+                "sample_every_n_frames": 1,
+                "overlap_mode": "replace_range",
+            },
+        )
+        self.assertEqual(big.status_code, 200)
+        big_body = big.get_json()
+        self.assertTrue(big_body["ok"])
+        summary = big_body["result"]["summary"]
+        self.assertTrue(bool(summary["auto_scaled"]))
+        self.assertLess(abs(float(summary["used_slide_dx_mm"])), abs(float(summary["requested_slide_dx_mm"])))
+
     def test_timeline_event_spans_motion_over_event_frames(self) -> None:
         client = self.program_app.app.test_client()
 

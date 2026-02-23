@@ -29,6 +29,7 @@ from motion_core import (
     compile_timeline,
     normalize_and_validate_program_spec,
 )
+from motion_core.stance_slide_generator import generate_stance_slide_events
 from sim_core import sim_store
 
 
@@ -90,7 +91,7 @@ class ProgramState:
         self.sim_runtime_running: bool = False
         self.sim_runtime_reason: Optional[str] = None
         self.sim_runtime_loop: bool = True
-        self.sim_runtime_speed_scale: float = 2.5
+        self.sim_runtime_speed_scale: float = 7.0
         self._runtime_thread: Optional[threading.Thread] = None
         self._runtime_engine: Optional[ProgramRuntimeEngine] = None
         self._runtime_stop_event = threading.Event()
@@ -810,6 +811,113 @@ class ProgramState:
                 return False, "event not found"
             return True, "ok"
 
+    def generate_stance_slide_timeline_events(
+        self,
+        *,
+        side: str,
+        leg: str,
+        start_frame: int,
+        duration_frames: int,
+        slide_dx_mm: float,
+        toe_y_lock_mm: Optional[float],
+        sample_every_n_frames: int,
+        overlap_mode: str,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        with self._lock:
+            if self.config is None:
+                return False, {}, "Config not loaded"
+            if self.sim_runtime_running:
+                return False, {}, "Playback is running"
+            cfg_locs = dict(self.config.locations)
+            dyn = dict(self.config.dynamic_limits)
+            start_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
+
+        mode = str(overlap_mode or "replace_range").strip().lower()
+        if mode not in ("replace_range", "skip_overlaps"):
+            return False, {}, "overlap_mode must be 'replace_range' or 'skip_overlaps'"
+        if int(start_frame) < 1:
+            return False, {}, "start_frame must be >= 1"
+        if int(duration_frames) < 1:
+            return False, {}, "duration_frames must be >= 1"
+        if int(sample_every_n_frames) < 1:
+            return False, {}, "sample_every_n_frames must be >= 1"
+
+        try:
+            generated = generate_stance_slide_events(
+                dynamic_limits=dyn,
+                locations_cfg=cfg_locs,
+                start_state=start_state,
+                side=side,
+                leg=leg,
+                start_frame=int(start_frame),
+                duration_frames=int(duration_frames),
+                slide_dx_mm=float(slide_dx_mm),
+                toe_y_lock_mm=None if toe_y_lock_mm is None else float(toe_y_lock_mm),
+                sample_every_n_frames=int(sample_every_n_frames),
+            )
+        except Exception as e:
+            return False, {}, str(e)
+
+        events_to_add = list(generated.get("events", []))
+        if not events_to_add:
+            payload = dict(generated)
+            payload["inserted_count"] = 0
+            payload["skipped_count"] = 0
+            return True, payload, "no movement events generated"
+
+        start_f = int(generated["summary"]["start_frame"])
+        end_f = int(generated["summary"]["end_frame"])
+        target_joints = {
+            str(generated["hip_joint_key"]),
+            str(generated["knee_joint_key"]),
+        }
+
+        inserted: List[Dict[str, Any]] = []
+        skipped = 0
+        with self._lock:
+            if mode == "replace_range":
+                self.timeline_events = [
+                    e
+                    for e in self.timeline_events
+                    if not (
+                        e.side == str(side).strip().lower()
+                        and e.joint_key in target_joints
+                        and not (int(e.end_frame) < start_f or int(e.start_frame) > end_f)
+                    )
+                ]
+
+            for ev in events_to_add:
+                overlap_id = self._find_timeline_overlap_id(
+                    side=str(ev["side"]),
+                    joint_key=str(ev["joint_key"]),
+                    start_frame=int(ev["start_frame"]),
+                    end_frame=int(ev["end_frame"]),
+                    ignore_event_id=None,
+                )
+                if overlap_id is not None:
+                    skipped += 1
+                    if mode == "replace_range":
+                        # Should be rare; keep safe behavior.
+                        continue
+                    continue
+                new_ev = TimelineEvent(
+                    id=self._next_event_id,
+                    side=str(ev["side"]),
+                    joint_key=str(ev["joint_key"]),
+                    start_frame=int(ev["start_frame"]),
+                    end_frame=int(ev["end_frame"]),
+                    angle_deg=int(ev["angle_deg"]),
+                )
+                self._next_event_id += 1
+                self.timeline_events.append(new_ev)
+                inserted.append(new_ev.to_dict())
+
+        payload = dict(generated)
+        payload["inserted_events"] = inserted
+        payload["inserted_count"] = len(inserted)
+        payload["skipped_count"] = int(skipped)
+        return True, payload, "ok"
+
     def compile_timeline_events(
         self,
         *,
@@ -974,6 +1082,45 @@ def api_timeline_events_delete(event_id: int):
     ok, msg = state.delete_timeline_event(event_id)
     code = 200 if ok else 404
     return jsonify({"ok": ok, "error": None if ok else msg}), code
+
+
+@app.post("/api/timeline/generate_stance_slide")
+def api_timeline_generate_stance_slide():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    side = str(data.get("side", "")).strip().lower()
+    leg = str(data.get("leg", "")).strip().lower()
+    try:
+        start_frame = int(data.get("start_frame", 1))
+        duration_frames = int(data.get("duration_frames", 10))
+        sample_n = int(data.get("sample_every_n_frames", 1))
+        slide_dx_mm = float(data.get("slide_dx_mm", 20.0))
+    except Exception:
+        return jsonify({"ok": False, "error": "start_frame/duration_frames/sample_every_n_frames must be integers; slide_dx_mm must be numeric"}), 400
+
+    toe_y_raw = data.get("toe_y_lock_mm", None)
+    toe_y_lock: Optional[float] = None
+    if toe_y_raw is not None and str(toe_y_raw).strip() != "":
+        try:
+            toe_y_lock = float(toe_y_raw)
+        except Exception:
+            return jsonify({"ok": False, "error": "toe_y_lock_mm must be numeric when provided"}), 400
+
+    overlap_mode = str(data.get("overlap_mode", "replace_range")).strip().lower()
+    ok, payload, msg = state.generate_stance_slide_timeline_events(
+        side=side,
+        leg=leg,
+        start_frame=start_frame,
+        duration_frames=duration_frames,
+        slide_dx_mm=slide_dx_mm,
+        toe_y_lock_mm=toe_y_lock,
+        sample_every_n_frames=sample_n,
+        overlap_mode=overlap_mode,
+    )
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "message": msg, "result": payload if ok else None, "status": state.status()}), code
 
 
 @app.get("/api/sim_state")
