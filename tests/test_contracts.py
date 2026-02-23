@@ -1176,6 +1176,36 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertTrue(bool(summary["auto_scaled"]))
         self.assertLess(abs(float(summary["used_slide_dx_mm"])), abs(float(summary["requested_slide_dx_mm"])))
 
+    def test_timeline_generate_knee_to_ground_contracts(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        bad = client.post(
+            "/api/timeline/generate_knee_to_ground",
+            json={"side": "left", "leg": "front", "start_frame": 0, "duration_frames": 6, "ground_y_mm": 0.0},
+        )
+        self.assertEqual(bad.status_code, 400)
+
+        good = client.post(
+            "/api/timeline/generate_knee_to_ground",
+            json={
+                "side": "left",
+                "leg": "front",
+                "start_frame": 1,
+                "duration_frames": 6,
+                "ground_y_mm": 0.0,
+                "overlap_mode": "replace_range",
+            },
+        )
+        self.assertEqual(good.status_code, 200)
+        body = good.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("result", body)
+        self.assertIn("knee_target_angle", body["result"])
+        self.assertIn("inserted_count", body["result"])
+
     def test_timeline_event_spans_motion_over_event_frames(self) -> None:
         client = self.program_app.app.test_client()
 

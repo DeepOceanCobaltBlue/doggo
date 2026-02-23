@@ -694,7 +694,21 @@
                     </select>
                 </div>
                 <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="genGroundMode">ground source</label>
+                    <select id="genGroundMode">
+                        <option value="other_leg_tangent">other leg tangent</option>
+                        <option value="fixed_value">fixed y value</option>
+                    </select>
+                </div>
+                <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="genGroundY">ground y (mm)</label>
+                    <input id="genGroundY" type="number" step="0.5" value="0" />
+                    <label class="fieldLabel" for="genKneeDropDuration">drop duration</label>
+                    <input id="genKneeDropDuration" type="number" min="1" step="1" value="6" />
+                </div>
+                <div class="row" style="margin-top:8px;">
                     <button class="primary" id="btnGenerateStance">Generate Stance</button>
+                    <button id="btnDropKneeToGround">Drop Knee To Ground</button>
                 </div>
             </details>
             <details open style="margin-top:10px;">
@@ -1310,6 +1324,13 @@
             return { ok: true, value: speed };
         }
 
+        function updateGroundModeUi() {
+            const mode = String(document.getElementById("genGroundMode").value || "other_leg_tangent").trim().toLowerCase();
+            const groundYEl = document.getElementById("genGroundY");
+            if (!groundYEl) return;
+            groundYEl.disabled = mode !== "fixed_value";
+        }
+
         function renderTimelineSurface() {
             document.getElementById("timelineSideSelect").value = timelineSide;
             document.getElementById("timelineSync").checked = timelineSyncEnabled;
@@ -1506,6 +1527,7 @@
                 : "Compiles and applies gait settings to the full timeline/program.";
             document.getElementById("btnExport").disabled = !hasCompiled;
             document.getElementById("btnGenerateStance").disabled = !hasConfig || isPlaying;
+            document.getElementById("btnDropKneeToGround").disabled = !hasConfig || isPlaying;
             document.getElementById("btnRefreshExports").disabled = !hasConfig || isPlaying;
             const selectedExport = String(document.getElementById("selExportFile").value || "").trim();
             document.getElementById("btnImportExported").disabled = !hasConfig || isPlaying || !selectedExport;
@@ -2175,6 +2197,73 @@
             );
         }
 
+        function getKneeDropParams() {
+            const side = String(document.getElementById("genSide").value || "").trim().toLowerCase();
+            const leg = String(document.getElementById("genLeg").value || "").trim().toLowerCase();
+            const startFrame = Number.parseInt(String(document.getElementById("genStartFrame").value || "").trim(), 10);
+            const durationFrames = Number.parseInt(String(document.getElementById("genKneeDropDuration").value || "").trim(), 10);
+            const groundY = Number.parseFloat(String(document.getElementById("genGroundY").value || "").trim());
+            const groundMode = String(document.getElementById("genGroundMode").value || "other_leg_tangent").trim().toLowerCase();
+            const overlapMode = String(document.getElementById("genOverlapMode").value || "replace_range").trim().toLowerCase();
+
+            if (!["left", "right"].includes(side)) return { ok: false, error: "side must be left/right" };
+            if (!["front", "rear"].includes(leg)) return { ok: false, error: "leg must be front/rear" };
+            if (!Number.isFinite(startFrame) || startFrame < 1) return { ok: false, error: "start frame must be >= 1" };
+            if (!Number.isFinite(durationFrames) || durationFrames < 1) return { ok: false, error: "drop duration must be >= 1" };
+            if (!["other_leg_tangent", "fixed_value"].includes(groundMode)) return { ok: false, error: "ground source must be valid" };
+            if (!Number.isFinite(groundY)) return { ok: false, error: "ground y must be numeric" };
+            if (!["replace_range", "skip_overlaps"].includes(overlapMode)) {
+                return { ok: false, error: "overlap mode must be replace_range or skip_overlaps" };
+            }
+            return {
+                ok: true,
+                body: {
+                    side,
+                    leg,
+                    start_frame: startFrame,
+                    duration_frames: durationFrames,
+                    ground_mode: groundMode,
+                    ground_y_mm: groundY,
+                    overlap_mode: overlapMode,
+                },
+            };
+        }
+
+        async function dropKneeToGround() {
+            if (!appStatus.config_loaded) {
+                setStatus("load config first", "danger");
+                return;
+            }
+            if (appStatus.sim_runtime_running) {
+                setStatus("stop playback before generating events", "danger");
+                return;
+            }
+            const params = getKneeDropParams();
+            if (!params.ok) {
+                setStatus(params.error || "invalid knee-drop inputs", "danger");
+                return;
+            }
+            const resp = await api("/api/timeline/generate_knee_to_ground", "POST", params.body);
+            if (!resp.ok) {
+                setStatus(resp.data?.message || resp.data?.error || "knee-drop generation failed", "danger");
+                return;
+            }
+            const result = resp.data?.result || {};
+            const inserted = Number(result.inserted_count || 0);
+            const skipped = Number(result.skipped_count || 0);
+            const startA = Number(result.knee_start_angle || 0);
+            const targetA = Number(result.knee_target_angle || 0);
+            const hit = !!result.hit_ground;
+            const groundY = Number(result.ground_y_mm || 0);
+            const gMode = String(result.ground_mode || "");
+            await loadTimelineEvents();
+            await refreshStatus();
+            setStatus(
+                `knee drop: ${inserted} inserted, ${skipped} skipped, ${startA} -> ${targetA}${hit ? " (ground reached)" : " (limit reached)"} [${gMode || "ground"} y=${groundY.toFixed(2)}]`,
+                "ok",
+            );
+        }
+
         async function exportProgram() {
             if (!appStatus.compiled_loaded) {
                 setStatus("produce timeline before export", "danger");
@@ -2354,6 +2443,7 @@
         document.getElementById("btnProduce").addEventListener("click", produceProgram);
         document.getElementById("btnExport").addEventListener("click", exportProgram);
         document.getElementById("btnGenerateStance").addEventListener("click", generateStanceEvents);
+        document.getElementById("btnDropKneeToGround").addEventListener("click", dropKneeToGround);
         document.getElementById("btnRefreshExports").addEventListener("click", async () => {
             await refreshExportsList();
             setStatus("exports refreshed", "muted");
@@ -2373,6 +2463,9 @@
         });
         document.getElementById("inpEaseOutFrames").addEventListener("input", () => {
             updateGaitControlsState();
+        });
+        document.getElementById("genGroundMode").addEventListener("change", () => {
+            updateGroundModeUi();
         });
 
         document.getElementById("btnFramePrev").addEventListener("click", async () => {
@@ -2483,6 +2576,7 @@
             await nudgeSelectedEvent(1);
         });
         enableAutoSelectForTextFields();
+        updateGroundModeUi();
         document.addEventListener("keydown", async (ev) => {
             if (keyboardFocusBlocksShortcuts(ev.target)) return;
             if (!selectedEvent()) return;

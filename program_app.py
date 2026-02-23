@@ -30,7 +30,10 @@ from motion_core import (
     normalize_and_validate_program_spec,
 )
 from motion_core.stance_slide_generator import generate_stance_slide_events
+from motion_core.stance_slide_generator import joint_keys_for_side_leg
+from motion_core.taskspace_kinematics import leg_descriptor, toe_from_leg_angles
 from sim_core import sim_store
+from sim_core.kinematics import build_leg_capsules_for_side
 
 
 CONFIG_DIR = Path("config")
@@ -918,6 +921,158 @@ class ProgramState:
         payload["skipped_count"] = int(skipped)
         return True, payload, "ok"
 
+    def generate_knee_to_ground_event(
+        self,
+        *,
+        side: str,
+        leg: str,
+        start_frame: int,
+        duration_frames: int,
+        ground_y_mm: float,
+        ground_mode: str,
+        overlap_mode: str,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        with self._lock:
+            if self.config is None:
+                return False, {}, "Config not loaded"
+            if self.sim_runtime_running:
+                return False, {}, "Playback is running"
+            cfg_locs = dict(self.config.locations)
+            dyn = dict(self.config.dynamic_limits)
+            start_state = {k: int(self.sim_angles.get(k, self.normal_angles.get(k, 135))) for k in self.config.position_order}
+
+        side_s = str(side).strip().lower()
+        leg_s = str(leg).strip().lower()
+        mode = str(overlap_mode or "replace_range").strip().lower()
+        if side_s not in ("left", "right"):
+            return False, {}, "side must be left/right"
+        if leg_s not in ("front", "rear"):
+            return False, {}, "leg must be front/rear"
+        if int(start_frame) < 1:
+            return False, {}, "start_frame must be >= 1"
+        if int(duration_frames) < 1:
+            return False, {}, "duration_frames must be >= 1"
+        if mode not in ("replace_range", "skip_overlaps"):
+            return False, {}, "overlap_mode must be 'replace_range' or 'skip_overlaps'"
+        gmode = str(ground_mode or "other_leg_tangent").strip().lower()
+        if gmode not in ("other_leg_tangent", "fixed_value"):
+            return False, {}, "ground_mode must be 'other_leg_tangent' or 'fixed_value'"
+
+        hip_key, knee_key = joint_keys_for_side_leg(side_s, leg_s)
+        side_vars = dyn.get(side_s, None)
+        if not isinstance(side_vars, dict):
+            return False, {}, f"missing dynamic limits for side {side_s}"
+        desc = leg_descriptor(side_s, leg_s, side_vars)
+        hip_now = int(start_state.get(hip_key, 135))
+        knee_now = int(start_state.get(knee_key, 135))
+
+        knee_loc_cfg = cfg_locs.get(knee_key, {})
+        lim = knee_loc_cfg.get("limits", {}) if isinstance(knee_loc_cfg, dict) else {}
+        k_lo = clamp_int(int(lim.get("deg_min", 0)), 0, 270) if isinstance(lim, dict) else 0
+        k_hi = clamp_int(int(lim.get("deg_max", 270)), 0, 270) if isinstance(lim, dict) else 270
+        if k_hi < k_lo:
+            k_lo, k_hi = k_hi, k_lo
+        knee_now = clamp_int(knee_now, k_lo, k_hi)
+
+        ground_y_used = float(ground_y_mm)
+        if gmode == "other_leg_tangent":
+            if side_s == "left":
+                angles_pack = {
+                    "front_hip": float(start_state.get("front_left_hip", 135)),
+                    "front_knee": float(start_state.get("front_left_knee", 135)),
+                    "rear_hip": float(start_state.get("rear_left_hip", 135)),
+                    "rear_knee": float(start_state.get("rear_left_knee", 135)),
+                }
+            else:
+                angles_pack = {
+                    "front_hip": float(start_state.get("front_right_hip", 135)),
+                    "front_knee": float(start_state.get("front_right_knee", 135)),
+                    "rear_hip": float(start_state.get("rear_right_hip", 135)),
+                    "rear_knee": float(start_state.get("rear_right_knee", 135)),
+                }
+            front_caps, rear_caps = build_leg_capsules_for_side(dyn, side_s, angles_pack)
+            other_caps = rear_caps if leg_s == "front" else front_caps
+            if other_caps:
+                ground_y_used = min(min(float(c.a[1]), float(c.b[1])) - float(c.r) for c in other_caps)
+
+        target = knee_now
+        hit_ground = False
+        toe_at_target = toe_from_leg_angles(desc, hip_now, target)
+        if float(toe_at_target[1]) <= float(ground_y_used):
+            hit_ground = True
+        else:
+            for k in range(int(knee_now) - 1, int(k_lo) - 1, -1):
+                toe = toe_from_leg_angles(desc, hip_now, k)
+                target = int(k)
+                toe_at_target = toe
+                if float(toe[1]) <= float(ground_y_used):
+                    hit_ground = True
+                    break
+
+        inserted = 0
+        skipped = 0
+        event_out: Optional[Dict[str, Any]] = None
+        ev_start = int(start_frame) + 1
+        ev_end = int(start_frame) + int(duration_frames)
+
+        with self._lock:
+            if target != knee_now:
+                if mode == "replace_range":
+                    self.timeline_events = [
+                        e
+                        for e in self.timeline_events
+                        if not (
+                            e.side == side_s
+                            and e.joint_key == knee_key
+                            and not (int(e.end_frame) < ev_start or int(e.start_frame) > ev_end)
+                        )
+                    ]
+                overlap_id = self._find_timeline_overlap_id(
+                    side=side_s,
+                    joint_key=knee_key,
+                    start_frame=ev_start,
+                    end_frame=ev_end,
+                    ignore_event_id=None,
+                )
+                if overlap_id is not None:
+                    skipped = 1
+                else:
+                    new_ev = TimelineEvent(
+                        id=self._next_event_id,
+                        side=side_s,
+                        joint_key=knee_key,
+                        start_frame=ev_start,
+                        end_frame=ev_end,
+                        angle_deg=int(target),
+                    )
+                    self._next_event_id += 1
+                    self.timeline_events.append(new_ev)
+                    inserted = 1
+                    event_out = new_ev.to_dict()
+
+        return (
+            True,
+            {
+                "side": side_s,
+                "leg": leg_s,
+                "hip_joint_key": hip_key,
+                "knee_joint_key": knee_key,
+                "start_frame": int(start_frame),
+                "duration_frames": int(duration_frames),
+                "event_range": {"start_frame": ev_start, "end_frame": ev_end},
+                "ground_mode": str(gmode),
+                "ground_y_mm": float(ground_y_used),
+                "knee_start_angle": int(knee_now),
+                "knee_target_angle": int(target),
+                "toe_y_at_target_mm": float(toe_at_target[1]),
+                "hit_ground": bool(hit_ground),
+                "inserted_count": int(inserted),
+                "skipped_count": int(skipped),
+                "event": event_out,
+            },
+            "ok",
+        )
+
     def compile_timeline_events(
         self,
         *,
@@ -1117,6 +1272,39 @@ def api_timeline_generate_stance_slide():
         slide_dx_mm=slide_dx_mm,
         toe_y_lock_mm=toe_y_lock,
         sample_every_n_frames=sample_n,
+        overlap_mode=overlap_mode,
+    )
+    code = 200 if ok else 400
+    return jsonify({"ok": ok, "message": msg, "result": payload if ok else None, "status": state.status()}), code
+
+
+@app.post("/api/timeline/generate_knee_to_ground")
+def api_timeline_generate_knee_to_ground():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+
+    side = str(data.get("side", "")).strip().lower()
+    leg = str(data.get("leg", "")).strip().lower()
+    try:
+        start_frame = int(data.get("start_frame", 1))
+        duration_frames = int(data.get("duration_frames", 6))
+    except Exception:
+        return jsonify({"ok": False, "error": "start_frame and duration_frames must be integers"}), 400
+    try:
+        ground_y_mm = float(data.get("ground_y_mm", 0.0))
+    except Exception:
+        return jsonify({"ok": False, "error": "ground_y_mm must be numeric"}), 400
+    ground_mode = str(data.get("ground_mode", "other_leg_tangent")).strip().lower()
+    overlap_mode = str(data.get("overlap_mode", "replace_range")).strip().lower()
+
+    ok, payload, msg = state.generate_knee_to_ground_event(
+        side=side,
+        leg=leg,
+        start_frame=start_frame,
+        duration_frames=duration_frames,
+        ground_y_mm=ground_y_mm,
+        ground_mode=ground_mode,
         overlap_mode=overlap_mode,
     )
     code = 200 if ok else 400
