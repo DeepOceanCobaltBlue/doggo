@@ -729,15 +729,40 @@ class ProgramState:
                 return {}
             location_keys = list(self.config.position_order)
             events = list(self.timeline_events)
-            # Use current simulation pose as baseline so generators can be seeded from manually posed state.
-            base = {k: clamp_int(int(self.sim_angles.get(k, self.normal_angles.get(k, 135))), 0, 270) for k in location_keys}
+            # Reconstruct source-frame state from timeline events using the same per-event
+            # interpolation semantics as compile_timeline_events.
+            base = {k: clamp_int(int(self.normal_angles.get(k, 135)), 0, 270) for k in location_keys}
 
-        events_sorted = sorted(events, key=lambda e: int(e.id))
-        state = dict(base)
-        for ev in events_sorted:
-            if int(ev.start_frame) <= frame_i <= int(ev.end_frame):
-                state[str(ev.joint_key)] = clamp_int(int(ev.angle_deg), 0, 270)
-        return state
+        out: Dict[str, int] = {}
+        events_by_joint: Dict[str, List[TimelineEvent]] = {str(k): [] for k in location_keys}
+        for ev in events:
+            jk = str(ev.joint_key)
+            if jk in events_by_joint:
+                events_by_joint[jk].append(ev)
+
+        for joint in location_keys:
+            key = str(joint)
+            current = int(base.get(key, 135))
+            joint_events = sorted(
+                events_by_joint.get(key, []),
+                key=lambda e: (int(e.start_frame), int(e.end_frame), int(e.id)),
+            )
+            for ev in joint_events:
+                start_f = int(ev.start_frame)
+                end_f = int(ev.end_frame)
+                target = clamp_int(int(ev.angle_deg), 0, 270)
+                if frame_i < start_f:
+                    break
+                if frame_i <= end_f:
+                    span = max(1, end_f - start_f + 1)
+                    i = frame_i - start_f
+                    progress = float(i + 1) / float(span)
+                    interp = int(round(current + (target - current) * progress))
+                    current = clamp_int(interp, 0, 270)
+                    break
+                current = int(target)
+            out[key] = int(current)
+        return out
 
     def create_timeline_event(self, payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], str]:
         ok, cleaned, msg = self._validate_timeline_event_fields(

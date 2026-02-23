@@ -657,6 +657,7 @@ class ProgramApiContracts(unittest.TestCase):
         state = self.program_app.state
         state.stop_sim_playback()
         with state._lock:
+            state.config = None
             state.timeline_events = []
             state._next_event_id = 1
             state.program_spec = None
@@ -664,6 +665,8 @@ class ProgramApiContracts(unittest.TestCase):
             state.compiled_base_timeline = None
             state.compiled_timeline = None
             state.compiled_dense_states = []
+            state.normal_angles = {}
+            state.sim_angles = {}
             state.sim_tick_idx = 0
             state.sim_runtime_running = False
             state.sim_runtime_reason = None
@@ -1206,6 +1209,49 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertIn("knee_target_angle", body["result"])
         self.assertIn("inserted_count", body["result"])
         self.assertIn("ground_error_mm", body["result"])
+
+    def test_knee_drop_uses_state_at_insert_frame_not_current_sim_tick(self) -> None:
+        client = self.program_app.app.test_client()
+
+        cfg = client.post("/api/load_config", json={})
+        self.assertEqual(cfg.status_code, 200)
+
+        # Seed timeline so front-left knee is at 160 by frame 10.
+        e1 = client.post(
+            "/api/timeline/events",
+            json={
+                "side": "left",
+                "joint_key": "front_left_knee",
+                "start_frame": 1,
+                "end_frame": 10,
+                "angle_deg": 160,
+            },
+        )
+        self.assertEqual(e1.status_code, 200)
+        self.assertTrue(e1.get_json()["ok"])
+
+        # Move current sim pose elsewhere to ensure generator does not use it.
+        state = self.program_app.state
+        with state._lock:
+            state.sim_angles["front_left_knee"] = 90
+            state.sim_tick_idx = 0
+
+        drop = client.post(
+            "/api/timeline/generate_knee_to_ground",
+            json={
+                "side": "left",
+                "leg": "front",
+                "start_frame": 10,
+                "duration_frames": 6,
+                "ground_mode": "other_leg_tangent",
+                "overlap_mode": "replace_range",
+            },
+        )
+        self.assertEqual(drop.status_code, 200)
+        body = drop.get_json()
+        self.assertTrue(body["ok"])
+        # Start angle should reflect timeline state near frame 10 (around 160), not sim angle 90.
+        self.assertGreaterEqual(int(body["result"]["knee_start_angle"]), 150)
 
     def test_timeline_event_spans_motion_over_event_frames(self) -> None:
         client = self.program_app.app.test_client()
