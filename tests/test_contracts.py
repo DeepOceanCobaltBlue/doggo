@@ -798,6 +798,13 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertTrue(save_body["ok"])
         fname = str(save_body["filename"])
         self.assertTrue(fname.endswith(".json"))
+        self.assertTrue(fname.startswith("export_"))
+
+        custom = client.post("/api/program_export/save", json={"filename": "my_walk"})
+        self.assertEqual(custom.status_code, 200)
+        custom_body = custom.get_json()
+        self.assertTrue(custom_body["ok"])
+        self.assertEqual(str(custom_body["filename"]), "my_walk.json")
 
         listed = client.get("/api/exports")
         self.assertEqual(listed.status_code, 200)

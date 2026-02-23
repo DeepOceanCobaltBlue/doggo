@@ -569,8 +569,13 @@ class ProgramState:
         if not out.get("ok"):
             return out
         program = out.get("program", {})
-        default_name = f"{str(program.get('program_id', 'program_produced')).strip() or 'program_produced'}.json"
-        safe_name = self._sanitize_export_filename(filename or default_name)
+        raw_name = "" if filename is None else str(filename).strip()
+        if raw_name:
+            safe_name = self._sanitize_export_filename(raw_name)
+        else:
+            # Timestamp default for quick exports when no explicit name is provided.
+            ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            safe_name = self._sanitize_export_filename(f"export_{ts}.json")
         if not safe_name:
             return {"ok": False, "error": "invalid filename"}
         out_path = EXPORTS_DIR / safe_name

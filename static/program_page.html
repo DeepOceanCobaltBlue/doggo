@@ -577,6 +577,15 @@
                     <button id="btnExport" title="Exports the currently produced timeline to the exports folder.">Export</button>
                 </div>
                 <div class="row" style="margin-top:8px;">
+                    <label class="fieldLabel" for="inpExportName">export name</label>
+                    <input
+                        id="inpExportName"
+                        type="text"
+                        placeholder="optional name (blank = timestamp)"
+                        title="Optional export filename base. If blank, a timestamped filename is used."
+                    />
+                </div>
+                <div class="row" style="margin-top:8px;">
                     <label class="fieldLabel" for="selExportFile">import exported file</label>
                     <select id="selExportFile" title="Files found in ./exports">
                         <option value="">(no exported files)</option>
@@ -742,6 +751,7 @@
         let previewTicks = [];
         let previewTickMs = 20;
         const TIMELINE_STEP_PX = 16;
+        const TIMELINE_TAIL_PAD_FRAMES = 60;
         let simTickIdx = 0;
         let playPollTimer = null;
         let selectedFrameSide = "left";
@@ -844,6 +854,24 @@
         function rowIndexForJoint(side, jointKey) {
             const keys = timelineJointKeysForSide(side);
             return keys.indexOf(jointKey);
+        }
+
+        function maxTimelineSourceFrameForSide(side) {
+            let maxFrame = MIN_SOURCE_FRAME;
+            for (const e of timelineEvents) {
+                if (String(e?.side || "") !== String(side || "")) continue;
+                const s = Number(e?.start_frame);
+                const end = Number(e?.end_frame);
+                if (Number.isFinite(s)) maxFrame = Math.max(maxFrame, s);
+                if (Number.isFinite(end)) maxFrame = Math.max(maxFrame, end);
+            }
+            if (createEventState && String(createEventState.side || "") === String(side || "")) {
+                const s = Number(createEventState.startFrame);
+                const end = Number(createEventState.endFrame);
+                if (Number.isFinite(s)) maxFrame = Math.max(maxFrame, s);
+                if (Number.isFinite(end)) maxFrame = Math.max(maxFrame, end);
+            }
+            return Math.max(MIN_SOURCE_FRAME, Math.trunc(maxFrame));
         }
 
         function selectedEvent() {
@@ -1004,11 +1032,13 @@
             let mode = "move";
             if (localX <= edgePx) mode = "resize_left";
             else if (localX >= rect.width - edgePx) mode = "resize_right";
+            const viewport = document.getElementById("timelineTracksViewport");
 
             dragState = {
                 eventId: Number(evt.id),
                 mode,
                 originClientX: mouseDownEvent.clientX,
+                originScrollLeft: Number(viewport?.scrollLeft || 0),
                 originStart: Number(evt.start_frame),
                 originEnd: Number(evt.end_frame),
             };
@@ -1097,8 +1127,19 @@
             if (!dragState) return;
             const evt = eventById(dragState.eventId);
             if (!evt) return;
+            const viewport = document.getElementById("timelineTracksViewport");
+            if (viewport) {
+                const vRect = viewport.getBoundingClientRect();
+                const edgePx = 24;
+                if (ev.clientX < vRect.left + edgePx) {
+                    viewport.scrollLeft = Math.max(0, viewport.scrollLeft - TIMELINE_STEP_PX);
+                } else if (ev.clientX > vRect.right - edgePx) {
+                    viewport.scrollLeft = viewport.scrollLeft + TIMELINE_STEP_PX;
+                }
+            }
 
-            const dx = ev.clientX - dragState.originClientX;
+            const scrollDeltaPx = Number(viewport?.scrollLeft || 0) - Number(dragState.originScrollLeft || 0);
+            const dx = (ev.clientX - dragState.originClientX) + scrollDeltaPx;
             const deltaFrames = Math.round(dx / TIMELINE_STEP_PX);
             let nextStart = dragState.originStart;
             let nextEnd = dragState.originEnd;
@@ -1231,7 +1272,9 @@
             const sourceLabels = document.getElementById("timelineSourceLabels");
             const tickCountRaw = Number(appStatus.compiled_summary?.num_ticks || 0);
             const visibleTickCount = Math.max(20, Math.floor(Math.max(0, (viewport.clientWidth || 480) - 20) / TIMELINE_STEP_PX) + 1);
-            const tickCount = Math.max(1, tickCountRaw || visibleTickCount);
+            const sideEventMax = maxTimelineSourceFrameForSide(timelineSide);
+            const sideEventTickSpan = Math.max(MIN_SOURCE_FRAME + 1, sideEventMax + 1 + TIMELINE_TAIL_PAD_FRAMES);
+            const tickCount = Math.max(1, tickCountRaw || 0, visibleTickCount, sideEventTickSpan);
             const widthPx = Math.max((tickCount * TIMELINE_STEP_PX) + 40, viewport.clientWidth || 480);
             inner.style.width = `${widthPx}px`;
             rulerLabels.style.width = `${widthPx}px`;
@@ -1856,10 +1899,24 @@
             drawJoint(Hr, 0.9);
             drawJoint(Kr, 0.8);
 
-            angFH.textContent = String(Math.round(g.angles.a_fh));
-            angFK.textContent = String(Math.round(g.angles.a_fk));
-            angRH.textContent = String(Math.round(g.angles.a_rh));
-            angRK.textContent = String(Math.round(g.angles.a_rk));
+            const commanded = g.side === "right"
+                ? {
+                    fh: clampInt(toInt(simAngles.front_right_hip, 135), 0, 270),
+                    fk: clampInt(toInt(simAngles.front_right_knee, 135), 0, 270),
+                    rh: clampInt(toInt(simAngles.rear_right_hip, 135), 0, 270),
+                    rk: clampInt(toInt(simAngles.rear_right_knee, 135), 0, 270),
+                }
+                : {
+                    fh: clampInt(toInt(simAngles.front_left_hip, 135), 0, 270),
+                    fk: clampInt(toInt(simAngles.front_left_knee, 135), 0, 270),
+                    rh: clampInt(toInt(simAngles.rear_left_hip, 135), 0, 270),
+                    rk: clampInt(toInt(simAngles.rear_left_knee, 135), 0, 270),
+                };
+
+            angFH.textContent = String(commanded.fh);
+            angFK.textContent = String(commanded.fk);
+            angRH.textContent = String(commanded.rh);
+            angRK.textContent = String(commanded.rk);
 
             const sideStatus = collisionStatus?.test?.[g.side] || null;
             let collisionTxt = "Collision: unknown";
@@ -1999,7 +2056,9 @@
                 setStatus("produce timeline before export", "danger");
                 return;
             }
-            const resp = await api("/api/program_export/save", "POST", {});
+            const exportName = String(document.getElementById("inpExportName").value || "").trim();
+            const body = exportName ? { filename: exportName } : {};
+            const resp = await api("/api/program_export/save", "POST", body);
             if (!resp.ok) {
                 setStatus(resp.data?.error || "export failed", "danger");
                 return;
