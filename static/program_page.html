@@ -750,6 +750,14 @@
                     <input id="evtEnd" type="number" min="1" step="1" disabled />
                 </div>
                 <div class="row" style="margin-top:10px;">
+                    <label class="muted" for="evtProducedStart">produced start</label>
+                    <input id="evtProducedStart" type="number" step="1" disabled />
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <label class="muted" for="evtProducedEnd">produced end</label>
+                    <input id="evtProducedEnd" type="number" step="1" disabled />
+                </div>
+                <div class="row" style="margin-top:10px;">
                     <label class="muted" for="evtAngle">angle</label>
                     <input id="evtAngle" type="number" min="0" max="270" step="1" disabled />
                 </div>
@@ -983,6 +991,8 @@
             const evt = selectedEvent();
             const startEl = document.getElementById("evtStart");
             const endEl = document.getElementById("evtEnd");
+            const producedStartEl = document.getElementById("evtProducedStart");
+            const producedEndEl = document.getElementById("evtProducedEnd");
             const angleEl = document.getElementById("evtAngle");
             const deleteEl = document.getElementById("btnDeleteEvent");
             const nudgeLeftEl = document.getElementById("btnNudgeLeft");
@@ -992,9 +1002,13 @@
             if (!evt) {
                 startEl.value = "";
                 endEl.value = "";
+                producedStartEl.value = "";
+                producedEndEl.value = "";
                 angleEl.value = "";
                 startEl.disabled = true;
                 endEl.disabled = true;
+                producedStartEl.disabled = true;
+                producedEndEl.disabled = true;
                 angleEl.disabled = true;
                 deleteEl.disabled = true;
                 nudgeLeftEl.disabled = true;
@@ -1005,12 +1019,22 @@
 
             startEl.disabled = false;
             endEl.disabled = false;
+            producedStartEl.disabled = true;
+            producedEndEl.disabled = true;
             angleEl.disabled = false;
             deleteEl.disabled = false;
             nudgeLeftEl.disabled = false;
             nudgeRightEl.disabled = false;
             startEl.value = String(evt.start_frame);
             endEl.value = String(evt.end_frame);
+            const mapped = compiledTickRangeForSourceRange(Number(evt.start_frame), Number(evt.end_frame));
+            if (mapped) {
+                producedStartEl.value = String(mapped.startTick);
+                producedEndEl.value = String(mapped.endTick);
+            } else {
+                producedStartEl.value = String(evt.start_frame);
+                producedEndEl.value = String(evt.end_frame);
+            }
             angleEl.value = String(evt.angle_deg);
             infoEl.textContent = `event #${evt.id} (${evt.side})`;
         }
