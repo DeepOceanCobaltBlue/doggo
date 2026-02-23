@@ -822,6 +822,35 @@ class ProgramApiContracts(unittest.TestCase):
         self.assertTrue(import_body["ok"])
         self.assertTrue(bool(import_body["status"]["program_loaded"]))
 
+        payload_import = client.post(
+            "/api/program_import_payload",
+            json={
+                "program": {
+                    "program_id": "payload_import_test",
+                    "tick_ms": 20,
+                    "steps": [
+                        {
+                            "step_id": "s0",
+                            "commands": [
+                                {"location": "front_left_hip", "target_angle": 140, "duration_ms": 20},
+                            ],
+                        }
+                    ],
+                },
+                "timeline_events": [
+                    {
+                        "side": "left",
+                        "joint_key": "front_left_hip",
+                        "start_frame": 1,
+                        "end_frame": 2,
+                        "angle_deg": 150,
+                    }
+                ],
+            },
+        )
+        self.assertEqual(payload_import.status_code, 200)
+        self.assertTrue(payload_import.get_json()["ok"])
+
         imported_events = client.get("/api/timeline/events?side=left")
         self.assertEqual(imported_events.status_code, 200)
         imported_events_body = imported_events.get_json()
@@ -829,7 +858,7 @@ class ProgramApiContracts(unittest.TestCase):
         events = imported_events_body.get("events", [])
         self.assertGreaterEqual(len(events), 1)
         self.assertEqual(int(events[0]["start_frame"]), 1)
-        self.assertEqual(int(events[0]["end_frame"]), 3)
+        self.assertEqual(int(events[0]["end_frame"]), 2)
 
     def test_program_gait_apply_and_sim_playback_contracts(self) -> None:
         client = self.program_app.app.test_client()

@@ -603,6 +603,9 @@ class ProgramState:
             raw = json.loads(p.read_text(encoding="utf-8"))
         except Exception as e:
             return False, f"failed to read json: {e}"
+        return self.import_export_payload(raw)
+
+    def import_export_payload(self, raw: Any) -> Tuple[bool, str]:
         import_events: Optional[List[Dict[str, Any]]] = None
         program_payload = raw
         if isinstance(raw, dict) and isinstance(raw.get("program"), dict):
@@ -1040,6 +1043,15 @@ def api_program_import():
     if not filename:
         return jsonify({"ok": False, "error": "filename is required"}), 400
     ok, msg = state.import_export_program(filename)
+    return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
+
+
+@app.post("/api/program_import_payload")
+def api_program_import_payload():
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "request body must be a JSON object"}), 400
+    ok, msg = state.import_export_payload(data)
     return jsonify({"ok": ok, "message": msg, "status": state.status()}), (200 if ok else 400)
 
 
